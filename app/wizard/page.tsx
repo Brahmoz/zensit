@@ -4,204 +4,213 @@ import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 
-const LOCATION_TAGS = ['Home', 'Hospital', 'School', 'Work', 'Travel', 'Other'];
-const SYMPTOMS_LIST = ['vomiting', 'headache', 'itching', 'redness', 'mucus'] as const;
-type SymptomKey = typeof SYMPTOMS_LIST[number];
+type SymptomKey = "vomiting" | "headache" | "itching" | "redness" | "mucus";
+const SYMPTOMS: { key: SymptomKey; icon: string; label: string }[] = [
+  { key: "itching",  icon: "😣", label: "Skin Itching" },
+  { key: "redness",  icon: "🔴", label: "Skin Redness" },
+  { key: "headache", icon: "🤕", label: "Headache" },
+  { key: "mucus",    icon: "💧", label: "Excess Mucus" },
+  { key: "vomiting", icon: "🤢", label: "Nausea / Vomiting" },
+];
+const LOCS = ["Home", "Hospital", "School", "Work", "Travel", "Other"];
 
-const SYMPTOM_META: Record<SymptomKey, { icon: string; label: string }> = {
-  vomiting: { icon: '🤢', label: 'Vomiting / Nausea' },
-  headache: { icon: '🤕', label: 'Headache' },
-  itching: { icon: '😣', label: 'Skin Itching' },
-  redness: { icon: '🔴', label: 'Skin Redness' },
-  mucus: { icon: '💧', label: 'Excess Mucus' },
-};
+const STEPS = [
+  { label: "Profile",  icon: "👤" },
+  { label: "Symptoms", icon: "🩺" },
+  { label: "Climate",  icon: "🌡️" },
+];
 
-export default function WizardForm() {
-  const [step, setStep] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
+export default function Wizard() {
+  const [step, setStep] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSavedState] = useState(false);
 
   const [profile, setProfile] = useState({
-    name: 'Nand',
-    date: new Date().toISOString().split('T')[0],
+    name: "Nand",
+    date: new Date().toISOString().slice(0, 10),
     time: new Date().toTimeString().slice(0, 5),
-    locationTag: 'Home',
+    location: "Home",
   });
 
-  const [symptoms, setSymptoms] = useState<Record<SymptomKey, { active: boolean; remark: string }>>(
-    Object.fromEntries(SYMPTOMS_LIST.map(k => [k, { active: false, remark: '' }])) as any
+  const [symptoms, setSymptoms] = useState<Record<SymptomKey, { on: boolean; note: string }>>(
+    Object.fromEntries(SYMPTOMS.map(s => [s.key, { on: false, note: "" }])) as any
   );
-  const [sneezing, setSneezing] = useState({ count: 0, remark: '' });
+  const [sneezes, setSneezes]   = useState(0);
+  const [sneezeNote, setSneezeNote] = useState("");
 
-  const [exposure, setExposure] = useState({
-    temperature: '—', humidity: '—',
-    foodIntake: '', foodTiming: '', medicines: '',
-  });
-
-  const [comfort, setComfort] = useState({ score: 0, label: 'Fetching...', color: '#6366f1', stroke: '#6366f1' });
+  const [wx, setWx] = useState({ temp: "—", hum: "—", score: 0, label: "Fetching…", color: "#6366f1" });
+  const [food, setFood]   = useState("");
+  const [meds, setMeds]   = useState("");
 
   useEffect(() => {
+    if (step !== 2) return;
     (async () => {
       try {
-        let lat = '20.5937', lon = '78.9629';
+        let lat = "20.5937", lon = "78.9629";
         if (navigator.geolocation) {
-          await new Promise<void>(resolve => {
+          await new Promise<void>(r =>
             navigator.geolocation.getCurrentPosition(
-              pos => { lat = String(pos.coords.latitude); lon = String(pos.coords.longitude); resolve(); },
-              () => resolve(),
-              { timeout: 5000 }
-            );
-          });
+              p => { lat = String(p.coords.latitude); lon = String(p.coords.longitude); r(); },
+              () => r(), { timeout: 5000 }
+            )
+          );
         }
         const res = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
         if (!res.ok) throw new Error();
         const d = await res.json();
-        const temp = Math.round(d.ambient_temp);
-        const hum = d.humidity;
-        setExposure(prev => ({ ...prev, temperature: `${temp}°C`, humidity: `${hum}%` }));
+        const t = Math.round(d.ambient_temp), h = d.humidity;
         let score = 100;
-        if (hum > 65 || hum < 35) score -= 35;
-        if (temp > 28 || temp < 16) score -= 30;
-        const final = Math.max(10, score);
-        setComfort(
-          final >= 75 ? { score: final, label: 'Excellent Climate', color: '#22c55e', stroke: '#22c55e' }
-          : final >= 50 ? { score: final, label: 'Moderate Discomfort', color: '#f59e0b', stroke: '#f59e0b' }
-          : { score: final, label: 'Poor — Allergy Risk', color: '#ef4444', stroke: '#ef4444' }
-        );
+        if (h > 65 || h < 35) score -= 35;
+        if (t > 28 || t < 16) score -= 30;
+        const s = Math.max(10, score);
+        setWx({
+          temp: `${t}°C`, hum: `${h}%`, score: s,
+          label: s >= 75 ? "Good" : s >= 50 ? "Moderate" : "Poor — Risk",
+          color: s >= 75 ? "#22c55e" : s >= 50 ? "#f59e0b" : "#ef4444",
+        });
       } catch {
-        setExposure(prev => ({ ...prev, temperature: '25°C', humidity: '55%' }));
-        setComfort({ score: 65, label: 'Estimated', color: '#f59e0b', stroke: '#f59e0b' });
+        setWx({ temp: "25°C", hum: "55%", score: 60, label: "Estimated", color: "#f59e0b" });
       }
     })();
-  }, []);
+  }, [step]);
 
-  const toggleSym = (k: SymptomKey) => setSymptoms(p => ({ ...p, [k]: { ...p[k], active: !p[k].active } }));
-  const setRemark = (k: SymptomKey, r: string) => setSymptoms(p => ({ ...p, [k]: { ...p[k], remark: r } }));
+  const toggle = (k: SymptomKey) =>
+    setSymptoms(p => ({ ...p, [k]: { ...p[k], on: !p[k].on } }));
 
-  const handleSubmit = async () => {
-    if (!db) { alert('Database not configured. Check your .env.local file.'); return; }
-    setSubmitting(true);
+  const handleSave = async () => {
+    if (!db) { alert("Database not configured"); return; }
+    setSaving(true);
     try {
-      await addDoc(collection(db, 'health_logs'), { profile, symptoms, sneezing, exposure, timestamp: new Date().toISOString() });
-      alert('✅ Log saved successfully!');
-      setStep(1);
-      setSymptoms(Object.fromEntries(SYMPTOMS_LIST.map(k => [k, { active: false, remark: '' }])) as any);
-      setSneezing({ count: 0, remark: '' });
-      setExposure(p => ({ ...p, foodIntake: '', foodTiming: '', medicines: '' }));
+      await addDoc(collection(db, "health_logs"), {
+        profile: {
+          ...profile,
+          locationTag: profile.location // Satisfy firestore.rules check for 'locationTag'
+        },
+        symptoms,
+        sneezing: { count: sneezes, note: sneezeNote },
+        exposure: { temperature: wx.temp, humidity: wx.hum, foodIntake: food, medicines: meds },
+        timestamp: new Date().toISOString(),
+      });
+      setSavedState(true);
     } catch (e) {
-      console.error('Save error:', e);
-      alert('❌ Error saving log. Check console for details.');
+      console.error(e);
+      alert("Save failed — check console");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const progress = ((step - 1) / 2) * 100;
+  const reset = () => {
+    setSavedState(false); setStep(0);
+    setSymptoms(Object.fromEntries(SYMPTOMS.map(s => [s.key, { on: false, note: "" }])) as any);
+    setSneezes(0); setSneezeNote(""); setFood(""); setMeds("");
+  };
 
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden"
-      style={{ background: '#030712', fontFamily: 'Inter, sans-serif' }}>
-
-      {/* Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-30%] left-[-20%] w-[700px] h-[700px] rounded-full animate-float-slow"
-          style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)' }} />
-        <div className="absolute bottom-[-20%] right-[-15%] w-[600px] h-[600px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)' }} />
-      </div>
-
-      {/* Back link */}
-      <div className="w-full max-w-lg mb-4 relative z-10">
-        <a href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-300 transition-colors">
-          ← Back to Home
-        </a>
-      </div>
-
-      {/* Card */}
-      <div className="w-full max-w-lg relative z-10 rounded-3xl overflow-hidden"
-        style={{
-          background: 'rgba(10, 15, 30, 0.85)',
-          backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(99, 102, 241, 0.15)',
-          boxShadow: '0 0 0 1px rgba(99,102,241,0.08), 0 40px 80px -20px rgba(0,0,0,0.7)',
-        }}>
-
-        {/* Header */}
-        <div className="px-6 pt-6 pb-0 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-lg">💠</span>
-              <span className="font-black text-lg text-white">Zensit <span style={{ color: '#818cf8' }}>Wizard</span></span>
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium">Allergy Telemetry Logger · Step {step} of 3</p>
-          </div>
-          <a href="/admin" className="text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all"
-            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc' }}>
-            Console →
-          </a>
+  // ─── Success screen ───────────────────────────────────────────────────────
+  if (saved) return (
+    <div style={{ minHeight: "100svh", background: "var(--bg)", display: "flex", alignItems: "center",
+      justifyContent: "center", padding: 24, fontFamily: "var(--font)" }}>
+      <div style={{ textAlign: "center", maxWidth: 360 }}>
+        <div style={{ fontSize: "4rem", marginBottom: 20 }}>✅</div>
+        <h2 style={{ fontWeight: 900, fontSize: "1.5rem", color: "#fff", marginBottom: 10 }}>Log saved!</h2>
+        <p className="t-body" style={{ marginBottom: 32, fontSize: "0.9rem" }}>
+          Your allergy telemetry has been recorded in Firebase.
+        </p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          <button onClick={reset} className="btn btn-primary">Log another</button>
+          <a href="/admin" className="btn btn-ghost">View Dashboard</a>
         </div>
+      </div>
+    </div>
+  );
 
-        {/* Progress bar */}
-        <div className="px-6 pt-4 pb-1">
-          <div className="flex items-center gap-2 mb-2">
-            {[1, 2, 3].map(s => (
-              <div key={s} className="flex items-center gap-1 flex-1">
-                <div className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black transition-all ${s <= step ? 'text-white' : 'text-slate-600'}`}
-                  style={{
-                    background: s < step ? '#6366f1' : s === step ? 'rgba(99,102,241,0.25)' : 'rgba(30,41,59,0.6)',
-                    border: s === step ? '1.5px solid rgba(99,102,241,0.7)' : '1px solid rgba(51,65,85,0.5)',
-                  }}>
-                  {s < step ? '✓' : s}
+  // ─── Main layout ──────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight: "100svh", background: "var(--bg)", fontFamily: "var(--font)",
+      display: "flex", flexDirection: "column" }}>
+
+      {/* Background glow */}
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "-20%", right: "-10%", width: 500, height: 500,
+          borderRadius: "50%", background: "radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%)" }} />
+      </div>
+
+      {/* Top bar */}
+      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(8,12,20,0.9)",
+        backdropFilter: "blur(16px)", borderBottom: "1px solid var(--border)" }}>
+        <div className="container" style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <a href="/" style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, fontSize: "1.05rem", color: "#fff", textDecoration: "none", letterSpacing: "-0.03em" }}>
+            <img src="/icon-192x192.png" alt="Zensit" style={{ width: 24, height: 24, objectFit: "contain" }} />
+            Zen<span style={{ color: "#818cf8" }}>sit</span>
+          </a>
+          <a href="/admin" className="btn btn-ghost btn-sm">Dashboard →</a>
+        </div>
+      </div>
+
+      {/* Step progress */}
+      <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", padding: "16px 0" }}>
+        <div className="container">
+          <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+            {STEPS.map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className={`step-dot ${i < step ? "done" : i === step ? "active" : "pending"}`}>
+                    {i < step ? "✓" : i + 1}
+                  </div>
+                  <span style={{ fontSize: "0.8125rem", fontWeight: 600,
+                    color: i === step ? "#a5b4fc" : i < step ? "#818cf8" : "var(--dim)",
+                    display: "none" }} className="sm-label">{s.label}</span>
+                  <span style={{ fontSize: "0.8125rem", fontWeight: 600, whiteSpace: "nowrap",
+                    color: i === step ? "#a5b4fc" : i < step ? "#818cf8" : "var(--dim)" }}>
+                    {s.icon} {s.label}
+                  </span>
                 </div>
-                {s < 3 && <div className="h-px flex-1 transition-all" style={{ background: s < step ? '#6366f1' : 'rgba(51,65,85,0.5)' }} />}
+                {i < STEPS.length - 1 && (
+                  <div className={`step-line ${i < step ? "done" : "pending"}`}
+                    style={{ margin: "0 12px" }} />
+                )}
               </div>
             ))}
           </div>
-          <div className="flex justify-between text-[9px] font-bold text-slate-600 uppercase tracking-wider">
-            <span>Profile</span><span className="ml-4">Symptoms</span><span>Climate</span>
-          </div>
         </div>
+      </div>
 
-        <div className="h-px mx-6 mt-4" style={{ background: 'rgba(99,102,241,0.1)' }} />
+      {/* Form area */}
+      <div style={{ flex: 1, padding: "28px 0 100px" }}>
+        <div className="container" style={{ maxWidth: 560 }}>
 
-        {/* Form body */}
-        <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+          {/* ── STEP 0 – Profile ───────────────────────────────────────── */}
+          {step === 0 && (
+            <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>👤 Patient Profile</h2>
 
-          {/* STEP 1 */}
-          {step === 1 && (
-            <div className="space-y-5 animate-fade-up">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Patient Name</label>
-                <input
-                  value={profile.name}
-                  onChange={e => setProfile(p => ({ ...p, name: e.target.value }))}
-                  placeholder="Enter name..."
-                  className="input-field w-full px-4 py-3.5 rounded-xl text-sm font-semibold"
-                />
+                <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Name</label>
+                <input className="input" value={profile.name} placeholder="Patient name"
+                  onChange={e => setProfile(p => ({ ...p, name: e.target.value }))} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Date</label>
-                  <input type="date" value={profile.date} onChange={e => setProfile(p => ({ ...p, date: e.target.value }))}
-                    className="input-field w-full px-4 py-3.5 rounded-xl text-sm font-semibold" />
+                  <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Date</label>
+                  <input className="input" type="date" value={profile.date}
+                    onChange={e => setProfile(p => ({ ...p, date: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Time</label>
-                  <input type="time" value={profile.time} onChange={e => setProfile(p => ({ ...p, time: e.target.value }))}
-                    className="input-field w-full px-4 py-3.5 rounded-xl text-sm font-semibold" />
+                  <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Time</label>
+                  <input className="input" type="time" value={profile.time}
+                    onChange={e => setProfile(p => ({ ...p, time: e.target.value }))} />
                 </div>
               </div>
+
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Location</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {LOCATION_TAGS.map(tag => (
-                    <button key={tag} type="button" onClick={() => setProfile(p => ({ ...p, locationTag: tag }))}
-                      className={`py-2.5 rounded-xl text-xs font-bold transition-all ${profile.locationTag === tag ? 'loc-active' : ''}`}
-                      style={{
-                        background: profile.locationTag === tag ? 'rgba(99,102,241,0.12)' : 'rgba(15,23,42,0.6)',
-                        border: profile.locationTag === tag ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(51,65,85,0.6)',
-                        color: profile.locationTag === tag ? '#a5b4fc' : '#64748b',
-                      }}>
-                      {tag}
+                <label className="t-label" style={{ display: "block", marginBottom: 10 }}>Location</label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                  {LOCS.map(l => (
+                    <button key={l} type="button"
+                      className={`loc-tag${profile.location === l ? " active" : ""}`}
+                      onClick={() => setProfile(p => ({ ...p, location: l }))}>
+                      {l}
                     </button>
                   ))}
                 </div>
@@ -209,165 +218,164 @@ export default function WizardForm() {
             </div>
           )}
 
-          {/* STEP 2 */}
-          {step === 2 && (
-            <div className="space-y-4 animate-fade-up">
-              {/* Sneeze Counter */}
-              <div className="p-4 rounded-2xl" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.5)' }}>
-                <div className="flex items-center justify-between mb-3">
+          {/* ── STEP 1 – Symptoms ──────────────────────────────────────── */}
+          {step === 1 && (
+            <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>🩺 Symptom Log</h2>
+
+              {/* Sneeze counter */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <div>
-                    <p className="text-sm font-bold text-white">😤 Sneezing Frequency</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">10-second count window</p>
+                    <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem" }}>😤 Sneezing</div>
+                    <div className="t-label" style={{ marginTop: 3 }}>Count in 10 seconds</div>
                   </div>
-                  <div className="flex items-center gap-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(51,65,85,0.6)' }}>
-                    <button onClick={() => setSneezing(p => ({ ...p, count: Math.max(0, p.count - 1) }))} type="button"
-                      className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-white/5 transition-all font-bold text-sm">−</button>
-                    <span className="px-3 text-lg font-black min-w-[40px] text-center" style={{ color: '#818cf8' }}>{sneezing.count}</span>
-                    <button onClick={() => setSneezing(p => ({ ...p, count: p.count + 1 }))} type="button"
-                      className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-white/5 transition-all font-bold text-sm">+</button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 0,
+                    background: "var(--surface-2)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}>
+                    <button type="button" onClick={() => setSneezes(n => Math.max(0, n - 1))}
+                      style={{ width: 44, height: 44, background: "none", border: "none", color: "var(--muted)",
+                        cursor: "pointer", fontSize: "1.2rem", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                    <span style={{ minWidth: 40, textAlign: "center", fontWeight: 900, fontSize: "1.25rem",
+                      color: "#818cf8", letterSpacing: "-0.04em" }}>{sneezes}</span>
+                    <button type="button" onClick={() => setSneezes(n => n + 1)}
+                      style={{ width: 44, height: 44, background: "none", border: "none", color: "var(--muted)",
+                        cursor: "pointer", fontSize: "1.2rem", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                   </div>
                 </div>
-                {sneezing.count > 0 && (
-                  <input value={sneezing.remark} onChange={e => setSneezing(p => ({ ...p, remark: e.target.value }))}
-                    placeholder="Any trigger context noted..." className="input-field w-full px-3.5 py-3 rounded-xl text-xs font-semibold" />
+                {sneezes > 0 && (
+                  <input className="input" value={sneezeNote} onChange={e => setSneezeNote(e.target.value)}
+                    placeholder="Trigger or context (optional)…" style={{ fontSize: "0.875rem" }} />
                 )}
               </div>
 
-              {/* Symptom Cards */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Symptom Indicators</label>
-                <div className="space-y-2">
-                  {SYMPTOMS_LIST.map(k => {
-                    const m = SYMPTOM_META[k];
-                    const isOn = symptoms[k].active;
-                    return (
-                      <div key={k} className="rounded-2xl overflow-hidden transition-all duration-300"
-                        style={{
-                          background: isOn ? 'rgba(239,68,68,0.05)' : 'rgba(15,23,42,0.6)',
-                          border: isOn ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(51,65,85,0.5)',
-                        }}>
-                        <div className="flex items-center justify-between p-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-base">{m.icon}</span>
-                            <span className="text-sm font-semibold text-slate-200">{m.label}</span>
-                          </div>
-                          <button type="button" onClick={() => toggleSym(k)}
-                            className="text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all"
-                            style={{
-                              background: isOn ? 'rgba(239,68,68,0.2)' : 'rgba(30,41,59,0.8)',
-                              border: isOn ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(51,65,85,0.6)',
-                              color: isOn ? '#fca5a5' : '#64748b',
-                            }}>
-                            {isOn ? '● Active' : '○ Clear'}
-                          </button>
+              {/* Symptoms */}
+              <label className="t-label">Active symptoms</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {SYMPTOMS.map(s => {
+                  const on = symptoms[s.key].on;
+                  return (
+                    <div key={s.key}>
+                      <div className={`sym-row${on ? " active" : ""}`} onClick={() => toggle(s.key)}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <span style={{ fontSize: "1.25rem" }}>{s.icon}</span>
+                          <span style={{ fontWeight: 600, color: on ? "#fff" : "var(--text)", fontSize: "0.9375rem" }}>{s.label}</span>
                         </div>
-                        {isOn && (
-                          <div className="px-3.5 pb-3.5">
-                            <input value={symptoms[k].remark} onChange={e => setRemark(k, e.target.value)}
-                              placeholder={`Describe ${k} severity or trigger...`}
-                              className="input-field w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold" />
-                          </div>
-                        )}
+                        <div className={`btn btn-sm ${on ? "btn-danger-active" : "btn-ghost"}`}
+                          style={{ minWidth: 80, pointerEvents: "none" }}>
+                          {on ? "● Active" : "○ Clear"}
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                      {on && (
+                        <div style={{ paddingTop: 8 }}>
+                          <input className="input" value={symptoms[s.key].note}
+                            onChange={e => setSymptoms(p => ({ ...p, [s.key]: { ...p[s.key], note: e.target.value } }))}
+                            onClick={e => e.stopPropagation()}
+                            placeholder={`Describe ${s.label.toLowerCase()} severity…`}
+                            style={{ fontSize: "0.875rem" }} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* STEP 3 */}
-          {step === 3 && (
-            <div className="space-y-5 animate-fade-up">
-              {/* Comfort Ring */}
-              <div className="p-5 rounded-2xl flex items-center gap-5"
-                style={{ background: 'rgba(15,23,42,0.8)', border: `1px solid ${comfort.color}25` }}>
-                <div className="relative shrink-0">
-                  <svg viewBox="0 0 80 80" className="w-16 h-16">
-                    <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(30,41,59,0.8)" strokeWidth="7" />
-                    <circle cx="40" cy="40" r="32" fill="none"
-                      stroke={comfort.stroke} strokeWidth="7" strokeLinecap="round"
-                      strokeDasharray="201" strokeDashoffset={201 - (201 * comfort.score) / 100}
-                      transform="rotate(-90 40 40)" className="progress-ring" />
+          {/* ── STEP 2 – Climate ──────────────────────────────────────── */}
+          {step === 2 && (
+            <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>🌡️ Climate & Intake</h2>
+
+              {/* Comfort ring */}
+              <div className="card" style={{ padding: 20, display: "flex", alignItems: "center", gap: 20 }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <svg viewBox="0 0 88 88" style={{ width: 72, height: 72 }}>
+                    <circle cx="44" cy="44" r="36" fill="none" strokeWidth="8" stroke="var(--surface-2)" />
+                    <circle cx="44" cy="44" r="36" fill="none" strokeWidth="8"
+                      stroke={wx.color} strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 36}`}
+                      strokeDashoffset={`${2 * Math.PI * 36 * (1 - wx.score / 100)}`}
+                      transform="rotate(-90 44 44)"
+                      className="ring-fill" />
                   </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-sm font-black text-white">{comfort.score}%</span>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                    justifyContent: "center", fontWeight: 900, fontSize: "0.9rem", color: "#fff" }}>
+                    {wx.score}%
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1">Climate Comfort</p>
-                  <p className="text-sm font-black" style={{ color: comfort.color }}>{comfort.label}</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Based on live GPS weather data</p>
+                  <div className="t-label" style={{ marginBottom: 4 }}>Climate Comfort</div>
+                  <div style={{ fontWeight: 800, fontSize: "1rem", color: wx.color }}>{wx.label}</div>
+                  <div className="t-label" style={{ marginTop: 4, fontSize: "0.65rem" }}>Based on GPS weather</div>
                 </div>
               </div>
 
-              {/* Weather tiles */}
-              <div className="grid grid-cols-2 gap-3">
-                {[{ label: 'Temperature', value: exposure.temperature, icon: '🌡️', color: '#f97316' },
-                  { label: 'Humidity', value: exposure.humidity, icon: '💧', color: '#3b82f6' }].map((w, i) => (
-                  <div key={i} className="p-4 rounded-2xl text-center" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.5)' }}>
-                    <div className="text-xl mb-1">{w.icon}</div>
-                    <div className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1">{w.label}</div>
-                    <div className="text-xl font-black" style={{ color: w.color }}>{w.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Food & Meds */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recent Food Intake</label>
-                <div className="flex gap-2">
-                  <input value={exposure.foodIntake} onChange={e => setExposure(p => ({ ...p, foodIntake: e.target.value }))}
-                    placeholder="e.g. wheat, dairy, rice..." className="input-field flex-1 px-4 py-3 rounded-xl text-sm font-semibold" />
-                  <input type="time" value={exposure.foodTiming} onChange={e => setExposure(p => ({ ...p, foodTiming: e.target.value }))}
-                    className="input-field w-24 px-3 py-3 rounded-xl text-sm font-semibold text-center" />
+              {/* Temp / Hum */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="wx-tile">
+                  <div style={{ fontSize: "1.5rem", marginBottom: 6 }}>🌡️</div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Temperature</div>
+                  <div style={{ fontWeight: 900, fontSize: "1.4rem", color: "#fb923c", letterSpacing: "-0.04em" }}>{wx.temp}</div>
+                </div>
+                <div className="wx-tile">
+                  <div style={{ fontSize: "1.5rem", marginBottom: 6 }}>💧</div>
+                  <div className="t-label" style={{ marginBottom: 6 }}>Humidity</div>
+                  <div style={{ fontWeight: 900, fontSize: "1.4rem", color: "#60a5fa", letterSpacing: "-0.04em" }}>{wx.hum}</div>
                 </div>
               </div>
 
+              {/* Food intake */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Medications Today</label>
-                <textarea value={exposure.medicines} onChange={e => setExposure(p => ({ ...p, medicines: e.target.value }))}
-                  placeholder="Antihistamines, steroid puffs, eye drops..." rows={2}
-                  className="input-field w-full px-4 py-3 rounded-xl text-sm font-semibold resize-none" />
+                <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Recent food intake</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input className="input" value={food} onChange={e => setFood(e.target.value)}
+                    placeholder="e.g. rice, dairy, wheat…" style={{ flex: 1, fontSize: "0.9rem" }} />
+                </div>
+              </div>
+
+              {/* Meds */}
+              <div>
+                <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Medications today</label>
+                <textarea className="input" value={meds} onChange={e => setMeds(e.target.value)}
+                  placeholder="Antihistamines, inhalers, eye drops…" rows={2}
+                  style={{ fontSize: "0.9rem" }} />
               </div>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Footer nav */}
-        <div className="px-6 py-4 flex items-center justify-between" style={{ borderTop: '1px solid rgba(99,102,241,0.1)', background: 'rgba(3,7,18,0.5)' }}>
-          <button type="button" onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}
-            className="text-xs font-bold px-5 py-3 rounded-xl transition-all"
-            style={{
-              background: step === 1 ? 'transparent' : 'rgba(30,41,59,0.6)',
-              border: step === 1 ? '1px solid transparent' : '1px solid rgba(51,65,85,0.5)',
-              color: step === 1 ? '#334155' : '#94a3b8',
-              cursor: step === 1 ? 'not-allowed' : 'pointer',
-            }}>
+      {/* Fixed bottom navigation */}
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+        background: "rgba(8,12,20,0.95)", backdropFilter: "blur(20px)",
+        borderTop: "1px solid var(--border)", padding: "14px 0" }}>
+        <div className="container" style={{ maxWidth: 560, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button className="btn btn-ghost" onClick={() => setStep(s => s - 1)} disabled={step === 0}
+            style={{ opacity: step === 0 ? 0 : 1, pointerEvents: step === 0 ? "none" : "auto" }}>
             ← Back
           </button>
 
-          <div className="flex gap-1.5">
-            {[1, 2, 3].map(s => (
-              <div key={s} className="h-1.5 rounded-full transition-all duration-300"
-                style={{ width: step === s ? '20px' : '6px', background: step === s ? '#6366f1' : 'rgba(51,65,85,0.6)' }} />
+          {/* Dot indicators */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {STEPS.map((_, i) => (
+              <div key={i} style={{
+                height: 6, borderRadius: 999,
+                background: i === step ? "#6366f1" : i < step ? "#818cf8" : "var(--border)",
+                width: i === step ? 24 : 6,
+                transition: "all 0.2s",
+              }} />
             ))}
           </div>
 
-          {step < 3 ? (
-            <button type="button" onClick={() => setStep(s => s + 1)}
-              className="btn-primary text-xs font-black px-6 py-3 rounded-xl text-white flex items-center gap-1.5">
-              Next →
+          {step < 2 ? (
+            <button className="btn btn-primary" onClick={() => setStep(s => s + 1)}>
+              Continue →
             </button>
           ) : (
-            <button type="button" onClick={handleSubmit} disabled={submitting}
-              className="text-xs font-black px-6 py-3 rounded-xl text-white transition-all flex items-center gap-1.5"
-              style={{
-                background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                boxShadow: '0 0 20px rgba(34,197,94,0.3)',
-                opacity: submitting ? 0.6 : 1,
-              }}>
-              {submitting ? '⏳ Saving...' : '✓ Complete Log'}
+            <button className="btn" onClick={handleSave} disabled={saving}
+              style={{ background: saving ? "var(--surface-2)" : "#22c55e", color: "#fff",
+                boxShadow: saving ? "none" : "0 0 20px rgba(34,197,94,0.3)", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Saving…" : "✓ Save Log"}
             </button>
           )}
         </div>

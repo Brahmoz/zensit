@@ -1,412 +1,372 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 
-export default function AdminDashboard() {
-  const [logs, setLogs] = useState<any[]>([]);
+export default function Admin() {
+  const [authed, setAuthed]   = useState(false);
+  const [pw, setPw]           = useState("");
+  const [pwErr, setPwErr]     = useState("");
+  const [logs, setLogs]       = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'analytics' | 'logs'>('analytics');
-  const [password, setPassword] = useState('');
-  const [unlocked, setUnlocked] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [tab, setTab]         = useState<"overview" | "feed">("overview");
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && sessionStorage.getItem('zensit_admin') === 'true') {
-      setUnlocked(true);
-    }
+    if (typeof window !== "undefined" && sessionStorage.getItem("za") === "1") setAuthed(true);
   }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
+    if (!authed || !db) { setLoading(false); return; }
     (async () => {
-      if (!db) { setLoading(false); return; }
       try {
-        const q = query(collection(db, 'health_logs'), orderBy('timestamp', 'desc'));
+        const q = query(collection(db, "health_logs"), orderBy("timestamp", "desc"));
         const snap = await getDocs(q);
         setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     })();
-  }, [unlocked]);
+  }, [authed]);
 
-  const handleAuth = (e: React.FormEvent) => {
+  const login = (e: React.FormEvent) => {
     e.preventDefault();
-    const expected = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'zensit2026';
-    if (password === expected) {
-      setUnlocked(true);
-      sessionStorage.setItem('zensit_admin', 'true');
-    } else {
-      setAuthError('Incorrect password. Please try again.');
-      setPassword('');
-    }
+    const expected = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "zensit2026";
+    if (pw === expected) { sessionStorage.setItem("za", "1"); setAuthed(true); }
+    else { setPwErr("Wrong password."); setPw(""); }
   };
 
-  const exportLogs = () => {
-    if (!logs.length) return alert('No logs to export.');
-    const sorted = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const exportJSON = () => {
+    if (!logs.length) return;
+    const sorted = [...logs].sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
     const base = new Date(sorted[0].timestamp).getTime();
-    const out = sorted.map((l, i) => ({
+    const out  = sorted.map((l, i) => ({
       log_index: i + 1,
       relative_day: Math.floor((new Date(l.timestamp).getTime() - base) / 86400000),
-      location: l.profile?.locationTag || 'unknown',
-      environment: { temp: l.exposure?.temperature || 'N/A', humidity: l.exposure?.humidity || 'N/A' },
-      symptoms: Object.entries(l.symptoms || {}).filter(([, v]: any) => v?.active || v === true).map(([k]) => k),
+      location: l.profile?.location || l.profile?.locationTag || "—",
+      climate: { temp: l.exposure?.temperature, humidity: l.exposure?.humidity },
+      symptoms: Object.entries(l.symptoms || {})
+        .filter(([, v]: any) => v?.on || v?.active || v === true)
+        .map(([k]) => k),
       sneezes: l.sneezing?.count || 0,
-      food: l.exposure?.foodIntake || '',
-      meds: l.exposure?.medicines || '',
+      food: l.exposure?.foodIntake || "",
+      meds: l.exposure?.medicines || "",
     }));
-    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `zensit_export_${new Date().toISOString().split('T')[0]}.json`; a.click();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
+    a.download = `zensit_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
   };
 
-  // ─── Analytics helpers ─────────────────────────────────────────────────────
-  const parseNum = (v: string | undefined) => v ? parseFloat(v.replace(/[^\d.]/g, '')) : null;
+  // ─── helpers ──────────────────────────────────────────────────────────────
+  const parseN = (v: string | undefined) => v ? parseFloat(v.replace(/[^\d.]/g, "")) : null;
 
   const avgTemp = () => {
-    const vals = logs.map(l => parseNum(l.exposure?.temperature || l.weather?.ambient_temp)).filter(Boolean) as number[];
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : '—';
+    const vals = logs.map(l => parseN(l.exposure?.temperature)).filter(Boolean) as number[];
+    return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}°C` : "—";
   };
   const avgHum = () => {
-    const vals = logs.map(l => parseNum(l.exposure?.humidity || l.weather?.humidity)).filter(Boolean) as number[];
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : '—';
+    const vals = logs.map(l => parseN(l.exposure?.humidity)).filter(Boolean) as number[];
+    return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%` : "—";
   };
 
-  const symptomCounts: Record<string, number> = { itching: 0, headache: 0, redness: 0, mucus: 0, vomiting: 0, sneezing: 0 };
+  const symCounts: Record<string, number> = { itching: 0, headache: 0, redness: 0, mucus: 0, vomiting: 0, sneezing: 0 };
   logs.forEach(l => {
     Object.entries(l.symptoms || {}).forEach(([k, v]: any) => {
-      if ((v?.active || v === true) && symptomCounts[k] !== undefined) symptomCounts[k]++;
+      if ((v?.on || v?.active || v === true) && k in symCounts) symCounts[k]++;
     });
-    if ((l.sneezing?.count || 0) > 0) symptomCounts.sneezing++;
+    if ((l.sneezing?.count || 0) > 0) symCounts.sneezing++;
   });
-  const maxSym = Math.max(...Object.values(symptomCounts), 1);
+  const maxSym = Math.max(...Object.values(symCounts), 1);
 
-  const riskInfo = (() => {
-    if (!logs.length) return { score: 0, label: 'No Data', color: '#475569' };
+  const latestRisk = (() => {
+    if (!logs[0]) return { score: 0, label: "No data", color: "#64748b" };
     const l = logs[0];
-    const t = parseNum(l.exposure?.temperature || l.weather?.ambient_temp) || 25;
-    const h = parseNum(l.exposure?.humidity || l.weather?.humidity) || 50;
-    let s = 20;
-    if (h > 65) s += 25; if (h < 35) s += 15;
-    if (t >= 18 && t <= 28) s += 25;
-    const syms = l.symptoms ? Object.values(l.symptoms).filter((v: any) => v?.active || v === true).length : 0;
-    s += syms * 12;
+    const t = parseN(l.exposure?.temperature) ?? 25;
+    const h = parseN(l.exposure?.humidity) ?? 50;
+    let s = 30;
+    if (h > 65 || h < 35) s += 25;
+    if (t > 28 || t < 16) s += 20;
+    const syms = Object.values(l.symptoms || {}).filter((v: any) => v?.on || v?.active || v === true).length;
+    s += syms * 10;
     const score = Math.min(100, s);
-    if (score < 40) return { score, label: 'Low Risk', color: '#22c55e' };
-    if (score < 70) return { score, label: 'Moderate', color: '#f59e0b' };
-    return { score, label: 'High Risk', color: '#ef4444' };
+    if (score < 40) return { score, label: "Low", color: "#22c55e" };
+    if (score < 65) return { score, label: "Moderate", color: "#f59e0b" };
+    return { score, label: "High", color: "#ef4444" };
   })();
 
-  // Chart data
-  const chartData = (() => {
-    if (logs.length < 2) return null;
-    const sorted = [...logs].filter(l => l.timestamp)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    const pts = sorted.map(l => ({
-      temp: parseNum(l.exposure?.temperature || l.weather?.ambient_temp) || 25,
-      sneezes: l.sneezing?.count || 0,
-      label: l.profile?.date?.slice(5) || '',
-    }));
-    const minT = Math.min(...pts.map(p => p.temp)) - 2;
-    const maxT = Math.max(...pts.map(p => p.temp)) + 2;
-    const maxSn = Math.max(...pts.map(p => p.sneezes), 3);
-    const W = 500; const H = 160; const PL = 35; const PR = 15; const PT = 15; const PB = 25;
-    const cW = W - PL - PR; const cH = H - PT - PB;
-    const N = pts.length;
-    const mapped = pts.map((p, i) => ({
-      x: PL + (N > 1 ? (i / (N - 1)) * cW : cW / 2),
-      yT: H - PB - ((p.temp - minT) / (maxT - minT)) * cH,
-      yS: H - PB - (p.sneezes / maxSn) * cH,
-      ...p
-    }));
-    const tempPath = mapped.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.yT.toFixed(1)}`).join(' ');
-    const tempArea = `${tempPath} L${mapped[N-1].x},${H-PB} L${mapped[0].x},${H-PB} Z`;
-    const sneezePath = mapped.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.yS.toFixed(1)}`).join(' ');
-    return { mapped, tempPath, tempArea, sneezePath, W, H, PL, PR, PT, PB, minT, maxT };
-  })();
-
-  // ─── Login Gate ────────────────────────────────────────────────────────────
-  if (!unlocked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#030712', fontFamily: 'Inter, sans-serif' }}>
-        <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-20%] left-[-10%] w-[700px] h-[700px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)' }} />
-          <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)' }} />
+  // ─── Login gate ────────────────────────────────────────────────────────────
+  if (!authed) return (
+    <div style={{ minHeight: "100svh", background: "var(--bg)", display: "flex", alignItems: "center",
+      justifyContent: "center", padding: 24, fontFamily: "var(--font)" }}>
+      <div style={{ width: "100%", maxWidth: 360 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ width: 56, height: 56, background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)",
+            borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 16px", overflow: "hidden" }}>
+            <img src="/icon-192x192.png" alt="Zensit Logo" style={{ width: "70%", height: "70%", objectFit: "contain" }} />
+          </div>
+          <h1 style={{ fontWeight: 900, fontSize: "1.4rem", color: "#fff", marginBottom: 6 }}>Clinical Console</h1>
+          <p className="t-body" style={{ fontSize: "0.875rem" }}>Enter your admin password to continue</p>
         </div>
 
-        <div className="w-full max-w-sm relative z-10 text-center">
-          <div className="mb-8">
-            <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-3xl mb-4 animate-float-slow"
-              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', boxShadow: '0 0 30px rgba(99,102,241,0.2)' }}>
-              🔐
+        <div className="card" style={{ padding: 24 }}>
+          <form onSubmit={login} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Password</label>
+              <input className="input" type="password" value={pw} autoFocus
+                onChange={e => { setPw(e.target.value); setPwErr(""); }}
+                placeholder="Enter password…" />
             </div>
-            <h1 className="text-2xl font-black text-white mb-1">Clinical Console</h1>
-            <p className="text-slate-500 text-xs font-medium">Authorized personnel only. Enter access password.</p>
-          </div>
-
-          <div className="rounded-3xl p-6" style={{ background: 'rgba(10,15,30,0.85)', border: '1px solid rgba(99,102,241,0.15)', backdropFilter: 'blur(20px)', boxShadow: '0 40px 80px -20px rgba(0,0,0,0.7)' }}>
-            <form onSubmit={handleAuth} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest text-left mb-2">Password</label>
-                <input
-                  type="password" value={password} onChange={e => { setPassword(e.target.value); setAuthError(''); }}
-                  placeholder="Enter console password..."
-                  autoFocus className="input-field w-full px-4 py-3.5 rounded-xl text-sm font-semibold text-center"
-                />
+            {pwErr && (
+              <div className="pill pill-red" style={{ borderRadius: 10, padding: "10px 14px", fontSize: "0.8125rem" }}>
+                ⚠ {pwErr}
               </div>
-
-              {authError && (
-                <div className="p-3 rounded-xl text-xs font-bold" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
-                  ⚠ {authError}
-                </div>
-              )}
-
-              <button type="submit" className="btn-primary w-full py-3.5 rounded-xl text-sm font-black text-white">
-                Unlock Console →
-              </button>
-            </form>
-          </div>
-
-          <a href="/wizard" className="mt-6 inline-block text-xs text-slate-600 hover:text-slate-400 transition-colors font-semibold">
-            ← Patient Wizard
+            )}
+            <button type="submit" className="btn btn-primary" style={{ width: "100%" }}>Unlock →</button>
+          </form>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <a href="/wizard" className="t-label" style={{ color: "var(--muted)", textDecoration: "none", fontSize: "0.75rem" }}>
+            ← Back to Wizard
           </a>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ─── Main Dashboard ────────────────────────────────────────────────────────
+  // ─── Dashboard ─────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen px-4 py-6 sm:px-8 sm:py-10" style={{ background: '#030712', fontFamily: 'Inter, sans-serif', color: '#f1f5f9' }}>
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%)' }} />
+    <div style={{ minHeight: "100svh", background: "var(--bg)", fontFamily: "var(--font)", paddingBottom: 60 }}>
+      {/* Header */}
+      <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 50 }}>
+        <div className="container" style={{ height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <a href="/wizard" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", fontWeight: 900, fontSize: "1.1rem", color: "#fff",
+              letterSpacing: "-0.03em" }}>
+              <img src="/icon-192x192.png" alt="Zensit" style={{ width: 22, height: 22, objectFit: "contain" }} />
+              Zensit <span style={{ color: "#818cf8" }}>Console</span>
+            </a>
+            <div className="t-label" style={{ marginTop: 2, fontSize: "0.65rem" }}>{logs.length} telemetry logs</div>
+          </div>
+          <button onClick={exportJSON} className="btn btn-primary btn-sm">⬇ Export JSON</button>
+        </div>
       </div>
 
-      <div className="max-w-6xl mx-auto relative z-10">
-
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-3">
-            <a href="/wizard" className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-100 transition-all"
-              style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.5)' }}>
-              ←
-            </a>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-2">
-                📊 Zensit <span style={{ color: '#818cf8' }}>Console</span>
-              </h1>
-              <p className="text-slate-500 text-xs mt-0.5 font-medium">{logs.length} logs · Clinical telemetry dashboard</p>
-            </div>
-          </div>
-          <button onClick={exportLogs}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
-            style={{ background: 'linear-gradient(135deg, #4f46e5, #3b82f6)', boxShadow: '0 0 20px rgba(79,70,229,0.3)' }}>
-            ⬇ Export MedGemma JSON
-          </button>
-        </div>
-
-        {/* Tab switcher */}
-        <div className="flex p-1 rounded-2xl mb-8 max-w-xs" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.4)' }}>
-          {(['analytics', 'logs'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className="flex-1 py-2.5 rounded-xl text-xs font-bold capitalize transition-all"
+      <div className="container" style={{ paddingTop: 28 }}>
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 28, background: "var(--surface)",
+          border: "1px solid var(--border)", borderRadius: 14, padding: 4, width: "fit-content" }}>
+          {(["overview", "feed"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} className="btn"
               style={{
-                background: tab === t ? 'rgba(99,102,241,0.2)' : 'transparent',
-                color: tab === t ? '#a5b4fc' : '#475569',
-                boxShadow: tab === t ? 'inset 0 0 0 1px rgba(99,102,241,0.35)' : 'none',
+                padding: "8px 20px", fontSize: "0.8125rem",
+                background: tab === t ? "var(--indigo)" : "transparent",
+                color: tab === t ? "#fff" : "var(--muted)",
+                borderRadius: 10, border: "none",
               }}>
-              {t === 'analytics' ? '📈 Analytics' : '📋 Telemetry Feed'}
+              {t === "overview" ? "📈 Overview" : "📋 All Logs"}
             </button>
           ))}
         </div>
 
-        {/* ANALYTICS TAB */}
-        {tab === 'analytics' && (
-          <div className="space-y-6">
-
-            {/* Metric cards row */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* ── OVERVIEW ──────────────────────────────────────────────── */}
+        {tab === "overview" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {/* Metric cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
               {[
-                { label: 'Total Logs', value: logs.length.toString(), icon: '📋', color: '#818cf8' },
-                { label: 'Avg Temp', value: `${avgTemp()}°C`, icon: '🌡️', color: '#f97316' },
-                { label: 'Avg Humidity', value: `${avgHum()}%`, icon: '💧', color: '#3b82f6' },
-                { label: 'Exposure Risk', value: `${riskInfo.score}%`, icon: '⚠️', color: riskInfo.color },
+                { label: "Total Logs",    value: String(logs.length), icon: "📋", color: "#818cf8" },
+                { label: "Avg Temp",      value: avgTemp(),           icon: "🌡️", color: "#fb923c" },
+                { label: "Avg Humidity",  value: avgHum(),            icon: "💧", color: "#60a5fa" },
+                { label: "Latest Risk",   value: `${latestRisk.score}%`, icon: "⚠️", color: latestRisk.color },
               ].map((m, i) => (
-                <div key={i} className="glass glass-hover p-5 rounded-2xl">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">{m.label}</span>
-                    <span className="text-xl">{m.icon}</span>
+                <div key={i} className="card" style={{ padding: "20px 18px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                    <span className="t-label" style={{ lineHeight: 1.3 }}>{m.label}</span>
+                    <span style={{ fontSize: "1.25rem" }}>{m.icon}</span>
                   </div>
-                  <div className="text-2xl font-black" style={{ color: m.color }}>{m.value}</div>
-                  <div className="text-[10px] text-slate-600 mt-1">{i === 3 ? riskInfo.label : 'all-time average'}</div>
+                  <div style={{ fontWeight: 900, fontSize: "1.8rem", letterSpacing: "-0.04em",
+                    color: m.color, lineHeight: 1 }}>{m.value}</div>
+                  {i === 3 && <div className="t-label" style={{ marginTop: 4, color: latestRisk.color, fontSize: "0.65rem" }}>{latestRisk.label}</div>}
                 </div>
               ))}
             </div>
 
-            {/* Bottom two panels */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
+            {/* Symptom bars + Chart side by side */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
               {/* Symptom distribution */}
-              <div className="glass p-6 rounded-2xl">
-                <h3 className="text-sm font-bold text-slate-300 mb-5 flex items-center gap-2">
-                  <span className="w-1.5 h-4 rounded-full inline-block" style={{ background: '#6366f1' }} />
-                  Symptom Distribution
-                </h3>
-                <div className="space-y-3.5">
-                  {Object.entries(symptomCounts).map(([key, count]) => (
-                    <div key={key}>
-                      <div className="flex justify-between text-[11px] font-semibold mb-1.5">
-                        <span className="text-slate-400 capitalize">{key}</span>
-                        <span className="text-slate-300">{count} logs</span>
+              <div className="card" style={{ padding: "24px 20px" }}>
+                <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 20,
+                  paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                  Symptom Frequency
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {Object.entries(symCounts).map(([k, count]) => (
+                    <div key={k}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ color: "var(--text)", fontSize: "0.8125rem", fontWeight: 600, textTransform: "capitalize" }}>{k}</span>
+                        <span style={{ color: "var(--muted)", fontSize: "0.75rem", fontWeight: 600 }}>{count}</span>
                       </div>
-                      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.8)' }}>
-                        <div className="h-full rounded-full transition-all duration-1000"
-                          style={{
-                            width: `${Math.round((count / maxSym) * 100)}%`,
-                            background: 'linear-gradient(90deg, #6366f1, #3b82f6)',
-                          }} />
+                      <div style={{ height: 6, background: "var(--surface-2)", borderRadius: 999, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", borderRadius: 999,
+                          width: `${Math.round((count / maxSym) * 100)}%`,
+                          background: "linear-gradient(90deg, #6366f1, #818cf8)",
+                          transition: "width 0.8s cubic-bezier(0.4,0,0.2,1)",
+                        }} />
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Chart */}
-              <div className="glass p-6 rounded-2xl">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                    <span className="w-1.5 h-4 rounded-full inline-block" style={{ background: '#3b82f6' }} />
-                    Climate vs Sneezing Trend
-                  </h3>
-                  <div className="flex gap-3 text-[10px] font-bold text-slate-500">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ background: '#f97316' }} />Temp</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ background: '#6366f1' }} />Sneezes</span>
+              {/* Mini SVG trend chart */}
+              <div className="card" style={{ padding: "24px 20px" }}>
+                <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 8,
+                  paddingBottom: 14, borderBottom: "1px solid var(--border)", display: "flex",
+                  justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Temp vs Sneezes</span>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <span className="t-label" style={{ color: "#fb923c", fontSize: "0.65rem" }}>● Temp</span>
+                    <span className="t-label" style={{ color: "#6366f1", fontSize: "0.65rem" }}>- - Sneezes</span>
                   </div>
                 </div>
-
-                {!chartData ? (
-                  <div className="h-40 flex items-center justify-center text-slate-600 text-xs italic">
-                    Need at least 2 logs to render the trend chart
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <svg viewBox={`0 0 ${chartData.W} ${chartData.H}`} className="w-full min-w-[400px] h-40">
+                {(() => {
+                  const sorted = [...logs].filter(l => l.timestamp)
+                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                  if (sorted.length < 2) return (
+                    <div style={{ height: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span className="t-label" style={{ fontStyle: "italic" }}>Need 2+ logs</span>
+                    </div>
+                  );
+                  const pts = sorted.map(l => ({
+                    t: parseN(l.exposure?.temperature) ?? 25,
+                    s: l.sneezing?.count ?? 0,
+                    d: l.profile?.date?.slice(5) ?? "",
+                  }));
+                  const W=460, H=130, PL=8, PR=8, PT=12, PB=24;
+                  const cW=W-PL-PR, cH=H-PT-PB, N=pts.length;
+                  const minT=Math.min(...pts.map(p=>p.t))-2, maxT=Math.max(...pts.map(p=>p.t))+2;
+                  const maxS=Math.max(...pts.map(p=>p.s),3);
+                  const mp = pts.map((p,i) => ({
+                    x: PL+(N>1?(i/(N-1))*cW:cW/2),
+                    yT: H-PB-((p.t-minT)/(maxT-minT))*cH,
+                    yS: H-PB-(p.s/maxS)*cH, ...p,
+                  }));
+                  const tPath = mp.map((p,i)=>`${i===0?"M":"L"}${p.x.toFixed(1)},${p.yT.toFixed(1)}`).join(" ");
+                  const sPath = mp.map((p,i)=>`${i===0?"M":"L"}${p.x.toFixed(1)},${p.yS.toFixed(1)}`).join(" ");
+                  return (
+                    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 130, overflow: "visible" }}>
                       <defs>
-                        <linearGradient id="tG" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f97316" stopOpacity="0.15" />
-                          <stop offset="100%" stopColor="#f97316" stopOpacity="0" />
+                        <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#fb923c" stopOpacity="0.2" />
+                          <stop offset="100%" stopColor="#fb923c" stopOpacity="0" />
                         </linearGradient>
                       </defs>
-                      {[0.25, 0.5, 0.75, 1].map((r, i) => {
-                        const y = chartData.PT + r * (chartData.H - chartData.PT - chartData.PB);
-                        return <line key={i} x1={chartData.PL} y1={y} x2={chartData.W - chartData.PR} y2={y}
-                          stroke="rgba(51,65,85,0.4)" strokeWidth="1" strokeDasharray="3 4" />;
+                      {[0.25,0.5,0.75,1].map((r,i)=>{
+                        const y=PT+r*(H-PT-PB);
+                        return <line key={i} x1={PL} y1={y} x2={W-PR} y2={y}
+                          stroke="rgba(255,255,255,0.05)" strokeWidth={1} />;
                       })}
-                      <path d={chartData.tempArea} fill="url(#tG)" />
-                      <path d={chartData.tempPath} fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d={chartData.sneezePath} fill="none" stroke="#6366f1" strokeWidth="2" strokeDasharray="5 3" strokeLinecap="round" strokeLinejoin="round" />
-                      {chartData.mapped.map((p: any, i: number) => (
+                      <path d={`${tPath} L${mp[N-1].x},${H-PB} L${mp[0].x},${H-PB} Z`} fill="url(#tg)" />
+                      <path d={tPath} fill="none" stroke="#fb923c" strokeWidth={2.5}
+                        strokeLinecap="round" strokeLinejoin="round" />
+                      <path d={sPath} fill="none" stroke="#6366f1" strokeWidth={2}
+                        strokeDasharray="5 4" strokeLinecap="round" strokeLinejoin="round" />
+                      {mp.map((p: any,i: number)=>(
                         <g key={i}>
-                          <circle cx={p.x} cy={p.yT} r="3.5" fill="#0d1117" stroke="#f97316" strokeWidth="2" />
-                          <circle cx={p.x} cy={p.yS} r="2.5" fill="#0d1117" stroke="#6366f1" strokeWidth="1.5" />
+                          <circle cx={p.x} cy={p.yT} r={3.5} fill="var(--bg)" stroke="#fb923c" strokeWidth={2} />
+                          <circle cx={p.x} cy={p.yS} r={2.5} fill="var(--bg)" stroke="#6366f1" strokeWidth={1.5} />
                         </g>
                       ))}
-                      {chartData.mapped.filter((_: any, i: number) => i % Math.ceil(chartData.mapped.length / 5) === 0 || i === chartData.mapped.length - 1).map((p: any, i: number) => (
-                        <text key={i} x={p.x} y={chartData.H - 5} textAnchor="middle" fontSize="8" fill="#475569" fontWeight="600">{p.label}</text>
-                      ))}
                     </svg>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           </div>
         )}
 
-        {/* LOGS TAB */}
-        {tab === 'logs' && (
-          <div>
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
-                <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-                <p className="text-sm font-semibold">Loading telemetry data...</p>
-              </div>
-            ) : logs.length === 0 ? (
-              <div className="text-center py-24" style={{ color: '#475569' }}>
-                <div className="text-5xl mb-4">📭</div>
-                <p className="text-sm font-semibold">No logs yet. Open the Wizard to record your first entry.</p>
-                <a href="/wizard" className="inline-block mt-4 px-5 py-2.5 rounded-xl text-xs font-bold text-white btn-primary">Open Wizard →</a>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {logs.map(log => {
-                  const activeSyms = Object.entries(log.symptoms || {}).filter(([, v]: any) => v?.active || v === true);
-                  const sneezeCount = log.sneezing?.count || 0;
-                  return (
-                    <div key={log.id} className="glass glass-hover p-5 rounded-2xl space-y-4">
-                      {/* Log header */}
-                      <div className="flex items-center justify-between">
-                        <div className="text-[11px] text-slate-500 font-semibold">
-                          {log.profile?.date || '—'} · {log.profile?.time || '—'}
-                        </div>
-                        <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg" style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc' }}>
-                          📍 {log.profile?.locationTag || 'Unknown'}
-                        </span>
-                      </div>
+        {/* ── FEED ─────────────────────────────────────────────────── */}
+        {tab === "feed" && (
+          loading ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+              paddingTop: 80, color: "var(--muted)" }}>
+              <div style={{ width: 20, height: 20, border: "2px solid var(--indigo)", borderTopColor: "transparent",
+                borderRadius: "50%", animation: "spinSlow 0.8s linear infinite" }} />
+              <span style={{ fontSize: "0.9rem" }}>Loading logs…</span>
+            </div>
+          ) : logs.length === 0 ? (
+            <div style={{ textAlign: "center", paddingTop: 80, color: "var(--muted)" }}>
+              <div style={{ fontSize: "3rem", marginBottom: 16 }}>📭</div>
+              <p style={{ marginBottom: 20 }}>No logs yet.</p>
+              <a href="/wizard" className="btn btn-primary">Open Wizard →</a>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+              {logs.map(l => {
+                const activeSyms = Object.entries(l.symptoms || {}).filter(([, v]: any) => v?.on || v?.active || v === true);
+                const sneezes   = l.sneezing?.count || 0;
+                const loc       = l.profile?.location || l.profile?.locationTag || "—";
+                return (
+                  <div key={l.id} className="card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                    {/* header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--muted)" }}>
+                        {l.profile?.date || "—"} · {l.profile?.time || "—"}
+                      </span>
+                      <span className="pill pill-indigo" style={{ fontSize: "0.7rem" }}>📍 {loc}</span>
+                    </div>
 
-                      {/* Climate */}
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { l: 'Temperature', v: log.exposure?.temperature || 'N/A', c: '#f97316' },
-                          { l: 'Humidity', v: log.exposure?.humidity || 'N/A', c: '#3b82f6' },
-                        ].map((w, i) => (
-                          <div key={i} className="p-3 rounded-xl text-center" style={{ background: 'rgba(2,6,23,0.6)' }}>
-                            <div className="text-[9px] text-slate-600 uppercase tracking-widest font-bold mb-1">{w.l}</div>
-                            <div className="text-lg font-black" style={{ color: w.c }}>{w.v}</div>
-                          </div>
+                    {/* climate row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {[
+                        { l: "Temp", v: l.exposure?.temperature || "—", c: "#fb923c" },
+                        { l: "Hum",  v: l.exposure?.humidity    || "—", c: "#60a5fa" },
+                      ].map((w, i) => (
+                        <div key={i} style={{ background: "var(--surface-2)", borderRadius: 10, padding: "10px",
+                          border: "1px solid var(--border)", textAlign: "center" }}>
+                          <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 4 }}>{w.l}</div>
+                          <div style={{ fontWeight: 900, fontSize: "1.1rem", color: w.c, letterSpacing: "-0.04em" }}>{w.v}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* sneezes */}
+                    {sneezes > 0 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px",
+                        background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 10 }}>
+                        <span style={{ fontSize: "0.8125rem", color: "var(--muted)" }}>😤 Sneezes</span>
+                        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fbbf24" }}>{sneezes}×</span>
+                      </div>
+                    )}
+
+                    {/* symptoms */}
+                    {activeSyms.length > 0 ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {activeSyms.map(([k]) => (
+                          <span key={k} className="pill pill-red" style={{ fontSize: "0.7rem", textTransform: "capitalize" }}>{k}</span>
                         ))}
                       </div>
+                    ) : (
+                      <span className="t-label" style={{ fontStyle: "italic", fontSize: "0.75rem" }}>No symptoms flagged</span>
+                    )}
 
-                      {/* Sneezing */}
-                      {sneezeCount > 0 && (
-                        <div className="flex items-center justify-between p-3 rounded-xl text-xs font-bold"
-                          style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                          <span className="text-slate-400">😤 Sneezing incidents</span>
-                          <span style={{ color: '#f59e0b' }}>{sneezeCount} counts</span>
-                        </div>
-                      )}
-
-                      {/* Symptoms */}
-                      {activeSyms.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {activeSyms.map(([k]) => (
-                            <span key={k} className="text-[10px] font-bold px-2.5 py-1 rounded-full capitalize"
-                              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
-                              {k}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-600 italic">No symptoms flagged</p>
-                      )}
-
-                      {/* Intake notes */}
-                      {(log.exposure?.foodIntake || log.exposure?.medicines) && (
-                        <div className="p-3 rounded-xl text-[11px] space-y-1" style={{ background: 'rgba(2,6,23,0.5)', border: '1px solid rgba(51,65,85,0.3)' }}>
-                          {log.exposure?.foodIntake && <p><span className="text-slate-500 font-bold">Food: </span><span className="text-slate-300">{log.exposure.foodIntake}</span></p>}
-                          {log.exposure?.medicines && <p><span className="text-slate-500 font-bold">Meds: </span><span className="text-slate-300">{log.exposure.medicines}</span></p>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    {/* intake */}
+                    {(l.exposure?.foodIntake || l.exposure?.medicines) && (
+                      <div style={{ fontSize: "0.8125rem", color: "var(--muted)", lineHeight: 1.6,
+                        borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                        {l.exposure?.foodIntake && <div><strong style={{ color: "var(--text)" }}>Food:</strong> {l.exposure.foodIntake}</div>}
+                        {l.exposure?.medicines  && <div><strong style={{ color: "var(--text)" }}>Meds:</strong> {l.exposure.medicines}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
     </div>
