@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Vercel
+.vercel
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# PWA generated files
+public/sw.js
+public/workbox-*.js
+public/worker-*.js
+public/sw.js.map
+public/workbox-*.js.map
+
+# Large assets that don't need version control
+Zensit-PWA-SourceCode.zip

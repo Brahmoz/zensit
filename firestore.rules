@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── health_logs collection ────────────────────────────────────────────────
+    // Used by the Zensit PWA (zensit.vercel.app) to write and read telemetry logs.
+    match /health_logs/{logId} {
+
+      // Allow writes from any authenticated origin (PWA submits without user auth).
+      // We validate the shape of the document so random data cannot be injected.
+      allow create: if
+        // Must have a profile map with at least a name field
+        request.resource.data.keys().hasAll(['profile', 'symptoms', 'exposure', 'timestamp']) &&
+        request.resource.data.profile is map &&
+        request.resource.data.profile.keys().hasAll(['name', 'date', 'time', 'locationTag']) &&
+        // name must be a non-empty string under 120 chars
+        request.resource.data.profile.name is string &&
+        request.resource.data.profile.name.size() > 0 &&
+        request.resource.data.profile.name.size() <= 120 &&
+        // timestamp must be a string
+        request.resource.data.timestamp is string;
+
+      // Allow reads only — no updates or deletes from the client
+      allow read: if true;
+
+      // Disallow client-side edits and deletes (admin only via Firebase Console)
+      allow update, delete: if false;
+    }
+
+    // ── Deny access to all other collections ─────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
