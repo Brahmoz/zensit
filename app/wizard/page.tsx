@@ -30,12 +30,13 @@ export default function Wizard() {
     name: string;
     allergies: string;
     color: string;
+    feeling: string;
   }
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>("default");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newProfile, setNewProfile] = useState({ name: "", allergies: "Pollen", color: "#6366f1" });
+  const [newProfile, setNewProfile] = useState({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" });
 
   const [profile, setProfile] = useState({
     name: "Nand",
@@ -61,7 +62,7 @@ export default function Wizard() {
           console.error(e);
         }
       } else {
-        const seed = [{ id: "default", name: "Nand", allergies: "Pollen", color: "#6366f1" }];
+        const seed = [{ id: "default", name: "Nand", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" }];
         localStorage.setItem("zensit_user_profiles", JSON.stringify(seed));
         setProfiles(seed);
         setActiveProfileId("default");
@@ -81,6 +82,7 @@ export default function Wizard() {
       name,
       allergies: newProfile.allergies,
       color: newProfile.color,
+      feeling: newProfile.feeling,
     };
     const updated = [...profiles, newP];
     setProfiles(updated);
@@ -88,7 +90,7 @@ export default function Wizard() {
     setActiveProfileId(newP.id);
     setProfile(p => ({ ...p, name: newP.name }));
     setShowAddForm(false);
-    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1" });
+    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" });
   };
 
   const deleteProfile = (id: string, e: React.MouseEvent) => {
@@ -153,9 +155,11 @@ export default function Wizard() {
     if (!db) { alert("Database not configured"); return; }
     setSaving(true);
     try {
+      const active = profiles.find(p => p.id === activeProfileId) || { feeling: "Calm 😌" };
       await addDoc(collection(db, "health_logs"), {
         profile: {
           ...profile,
+          feeling: active.feeling || "Calm 😌",
           locationTag: profile.location // Satisfy firestore.rules check for 'locationTag'
         },
         symptoms,
@@ -300,7 +304,9 @@ export default function Wizard() {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#fff" }}>{p.name}</div>
-                          <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "capitalize" }}>{p.allergies} Triggers</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "capitalize" }}>
+                            {p.allergies} Triggers • {p.feeling || "Calm 😌"}
+                          </div>
                         </div>
                       </div>
                       
@@ -365,7 +371,7 @@ export default function Wizard() {
                       onChange={e => setNewProfile(prev => ({ ...prev, name: e.target.value }))} />
                   </div>
                   
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
                     <div>
                       <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Primary Allergen</label>
                       <select 
@@ -376,6 +382,19 @@ export default function Wizard() {
                       >
                         {["Pollen", "Dust", "Pets", "Food", "Air Quality", "Other"].map(a => (
                           <option key={a} value={a}>{a}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>General Feeling</label>
+                      <select 
+                        className="input" 
+                        value={newProfile.feeling}
+                        onChange={e => setNewProfile(prev => ({ ...prev, feeling: e.target.value }))}
+                        style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}
+                      >
+                        {["Calm 😌", "Energetic ⚡", "Fatigued 😴", "Anxious 😰", "Irritated 🤧"].map(f => (
+                          <option key={f} value={f}>{f}</option>
                         ))}
                       </select>
                     </div>

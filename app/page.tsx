@@ -3,15 +3,9 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 export default function Home() {
-  const [flareups, setFlareups] = useState(8);
-  const [recovery, setRecovery] = useState(3);
   const [navSolid, setNavSolid] = useState(false);
+  const [comfortFeeling, setComfortFeeling] = useState<"sniffling" | "tired" | "anxious">("sniffling");
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const total = flareups * recovery;
-  const with_z = Math.max(1, Math.round(total * 0.22));
-  const saved = total - with_z;
-  const pct = Math.round((saved / total) * 100);
 
   useEffect(() => {
     const fn = () => setNavSolid(window.scrollY > 40);
@@ -19,7 +13,7 @@ export default function Home() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  // Particle network
+  // Soothing, slow-floating particle background
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
@@ -27,9 +21,9 @@ export default function Home() {
     const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
     resize();
     window.addEventListener("resize", resize);
-    const pts = Array.from({ length: 50 }, () => ({
+    const pts = Array.from({ length: 35 }, () => ({
       x: Math.random() * c.width, y: Math.random() * c.height,
-      vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
+      vx: (Math.random() - 0.5) * 0.12, vy: (Math.random() - 0.5) * 0.12,
     }));
     let raf: number;
     const draw = () => {
@@ -38,18 +32,18 @@ export default function Home() {
         p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > c.width) p.vx *= -1;
         if (p.y < 0 || p.y > c.height) p.vy *= -1;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(99,102,241,0.5)"; ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(129, 140, 248, 0.25)"; ctx.fill();
       });
       for (let i = 0; i < pts.length; i++)
         for (let j = i + 1; j < pts.length; j++) {
           const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
           const d = Math.hypot(dx, dy);
-          if (d < 110) {
+          if (d < 160) {
             ctx.beginPath();
             ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y);
-            ctx.strokeStyle = `rgba(99,102,241,${0.07 * (1 - d / 110)})`;
-            ctx.lineWidth = 0.8; ctx.stroke();
+            ctx.strokeStyle = `rgba(129, 140, 248, ${0.06 * (1 - d / 160)})`;
+            ctx.lineWidth = 0.5; ctx.stroke();
           }
         }
       raf = requestAnimationFrame(draw);
@@ -59,9 +53,9 @@ export default function Home() {
   }, []);
 
   const features = [
-    { icon: "🩺", title: "Symptom Logging", body: "Tap to activate symptoms — itching, redness, mucus, headache, nausea. Includes a real-time sneeze frequency counter." },
-    { icon: "🌡️", title: "Climate Telemetry", body: "GPS-powered ambient temperature and humidity, logged automatically with every session for correlation analysis." },
-    { icon: "🤖", title: "MedGemma Export", body: "One-tap export of your full telemetry history as structured JSON ready for LLM clinical analysis." },
+    { icon: "🩺", title: "Symptom Logging", body: "Gently catalog symptoms — itching, redness, mucus, headache, and nausea. Includes a real-time sneeze counter." },
+    { icon: "🌡️", title: "Climate Telemetry", body: "GPS-powered ambient temperature and humidity tracking logs environmental variables to spot trends." },
+    { icon: "🤖", title: "Clinical Export", body: "Structured JSON telemetry export is fully ready for doctor verification or MedGemma LLM analysis." },
   ];
 
   return (
@@ -71,11 +65,11 @@ export default function Home() {
       <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" }}>
         <div style={{
           position: "absolute", top: "-30%", left: "-15%", width: 700, height: 700, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)"
+          background: "radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)"
         }} className="anim-float" />
         <div style={{
           position: "absolute", bottom: "-25%", right: "-10%", width: 600, height: 600, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)", animationDelay: "3s"
+          background: "radial-gradient(circle, rgba(59,130,246,0.04) 0%, transparent 70%)", animationDelay: "3s"
         }} className="anim-float" />
       </div>
 
@@ -99,7 +93,6 @@ export default function Home() {
             <span className="pill pill-indigo" style={{ fontSize: "0.6rem", padding: "3px 8px" }}>PWA</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Link href="/admin" className="btn btn-ghost btn-sm" style={{ display: "none" }} id="nav-console">Console</Link>
             <Link href="/admin" className="btn btn-ghost btn-sm">Console</Link>
             <Link href="/wizard" className="btn btn-primary btn-sm">Log Symptoms →</Link>
           </div>
@@ -108,67 +101,202 @@ export default function Home() {
 
       {/* HERO */}
       <section style={{
-        position: "relative", zIndex: 1, minHeight: "100svh", display: "flex", alignItems: "center",
-        justifyContent: "center", paddingTop: 100, paddingBottom: 80, textAlign: "center"
+        position: "relative", zIndex: 1, minHeight: "85svh", display: "flex", alignItems: "center",
+        justifyContent: "center", paddingTop: 120, paddingBottom: 60, textAlign: "center"
       }}>
-        <div className="container">
-          <div className="anim-fadeup" style={{ marginBottom: 24 }}>
+        <div className="container" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          
+          {/* Centered stage pulsing logo */}
+          <div className="anim-fadeup" style={{ 
+            marginBottom: 28,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 110,
+            height: 110,
+            borderRadius: "50%",
+            background: "rgba(99, 102, 241, 0.06)",
+            border: "1.5px solid rgba(99, 102, 241, 0.25)",
+            boxShadow: "0 0 35px rgba(99, 102, 241, 0.12)"
+          }}>
+            <img 
+              src="/icon-192x192.png" 
+              alt="Zensit Lotus Logo" 
+              style={{ 
+                width: 64, 
+                height: 64, 
+                objectFit: "contain",
+                animation: "pulse 4s infinite ease-in-out" 
+              }} 
+            />
+          </div>
+
+          <div className="anim-fadeup delay-1" style={{ marginBottom: 20 }}>
             <span className="pill pill-indigo">
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#818cf8", animation: "pulse-ring 2s infinite", display: "inline-block" }} />
-              Live Allergy Telemetry · Mobile-First Clinical PWA
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#818cf8", display: "inline-block", marginRight: 6 }} />
+              A Calming Sanctuary for Allergy Logging
             </span>
           </div>
 
-          <h1 className="t-hero anim-fadeup delay-1" style={{ marginBottom: 20 }}>
-            Track your<br /><span className="grad-text">allergy triggers</span><br />in real time.
+          <h1 className="t-hero anim-fadeup delay-2" style={{ marginBottom: 20, fontSize: "clamp(2rem, 5vw, 3.2rem)", lineHeight: 1.15 }}>
+            Breathe Easy.<br /><span className="grad-text">Live Mindfully.</span>
           </h1>
 
-          <p className="t-body anim-fadeup delay-2" style={{ maxWidth: 520, margin: "0 auto 36px", fontSize: "1rem" }}>
-            Pair GPS climate data with symptom logs to build a rich telemetry timeline. Export structured JSON for MedGemma LLM clinical analysis.
+          <p className="t-body anim-fadeup delay-3" style={{ maxWidth: 540, margin: "0 auto 36px", fontSize: "1.05rem", color: "var(--muted)", lineHeight: 1.65 }}>
+            Healing begins with understanding. By pairing simple climate tracking with daily symptom logs, Zensit helps you find predictability, bringing clarity and calm to allergy management.
           </p>
 
-          <div className="anim-fadeup delay-3" style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <Link href="/wizard" className="btn btn-primary btn-lg">🩺 Start Logging</Link>
-            <Link href="/admin" className="btn btn-ghost btn-lg">View Dashboard</Link>
+          <div className="anim-fadeup delay-4" style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+            <Link href="/wizard" className="btn btn-primary btn-lg">Start Logging</Link>
+            <Link href="/admin" className="btn btn-ghost btn-lg">Clinical Console</Link>
           </div>
 
-          {/* Stats */}
-          <div className="anim-fadeup delay-4 stats-grid" style={{ maxWidth: 680, margin: "64px auto 0" }}>
-            {[
-              { n: "78%", l: "Flare-up reduction" },
-              { n: "10s", l: "Sneeze timer" },
-              { n: "24/7", l: "Climate tracking" },
-              { n: "100%", l: "MedGemma ready" },
-            ].map((s, i) => (
-              <div key={i} className="card" style={{ padding: "18px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: "1.5rem", fontWeight: 900, color: "#818cf8", letterSpacing: "-0.04em", marginBottom: 4 }}>{s.n}</div>
-                <div className="t-label" style={{ fontSize: "0.65rem", lineHeight: 1.4 }}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Scroll cue */}
-          <div className="anim-fadeup delay-5" style={{ marginTop: 56, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-            <span className="t-label" style={{ fontSize: "0.6rem" }}>scroll</span>
+          {/* Breathing Circle Cue */}
+          <div className="anim-fadeup delay-5" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginTop: 48 }}>
             <div style={{
-              width: 22, height: 36, border: "1px solid var(--border)", borderRadius: 999,
-              display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 6
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              background: "rgba(99, 102, 241, 0.1)",
+              border: "1.5px solid rgba(99, 102, 241, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: "#818cf8",
+              animation: "pulse-breath 6s infinite ease-in-out"
             }}>
-              <div style={{
-                width: 4, height: 8, background: "#6366f1", borderRadius: 999,
-                animation: "fadeUp 1.5s ease-in-out infinite alternate"
-              }} />
+              Breathe
             </div>
+            <span className="t-label" style={{ fontSize: "0.65rem", color: "var(--muted)" }}>Inhale comfort, exhale tension</span>
           </div>
         </div>
       </section>
 
-      {/* FEATURES */}
-      <section style={{ position: "relative", zIndex: 1, padding: "96px 0" }}>
+      {/* SOOTHING AWARENESS STATS & COMFORTER */}
+      <section style={{ position: "relative", zIndex: 1, padding: "64px 0" }}>
         <div className="container">
-          <div style={{ textAlign: "center", marginBottom: 56 }}>
-            <div className="pill pill-indigo" style={{ marginBottom: 16 }}>How it works</div>
-            <h2 className="t-title">Three steps, complete picture</h2>
+          
+          <div className="card-hi" style={{ padding: "44px 36px", background: "rgba(10, 16, 28, 0.7)", border: "1px solid var(--border)" }}>
+            <div style={{ textAlign: "center", marginBottom: 36 }}>
+              <div className="pill pill-indigo" style={{ marginBottom: 12 }}>Allergy Awareness Hub</div>
+              <h2 className="t-title" style={{ fontSize: "clamp(1.4rem,3vw,2rem)", marginBottom: 10 }}>Empowering Facts for Comfort</h2>
+              <p className="t-body" style={{ fontSize: "0.9375rem", color: "var(--muted)", maxWidth: 500, margin: "0 auto" }}>
+                You are in control. Let statistics reassure you that relief is structured, predictable, and within reach.
+              </p>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32 }}>
+              
+              {/* Comfort Facts Grid */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {[
+                  { title: "You Are Not Alone", desc: "Over 400 million people globally manage allergic rhinitis. Knowing this normalizes the path to healing." },
+                  { title: "Predictable Triggers", desc: "Up to 80% of allergen flare-ups are manageable with proactive logging and climate mapping." },
+                  { title: "Serene Environments", desc: "Keeping indoor humidity between 35%-50% naturally reduces airborne dust mites and spores by half." },
+                  { title: "Doctor Empowered", desc: "Structured telemetry formats logs directly for clinical review, removing guesswork from doctor appointments." }
+                ].map((fact, index) => (
+                  <div key={index} style={{
+                    padding: "16px",
+                    background: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid var(--border-hi)",
+                    borderRadius: "14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6
+                  }}>
+                    <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "#818cf8" }}>✨ {fact.title}</span>
+                    <span style={{ fontSize: "0.8125rem", color: "var(--muted)", lineHeight: 1.5 }}>{fact.desc}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Soothing Comfort Interactive Selector */}
+              <div style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 20,
+                padding: "24px",
+                background: "rgba(255, 255, 255, 0.03)",
+                border: "1.5px solid var(--border)",
+                borderRadius: "16px",
+                justifyContent: "center"
+              }}>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#fff", textAlign: "center" }}>
+                  How are you feeling right now?
+                </h3>
+                
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                  {[
+                    { key: "sniffling", label: "🤧 Sniffling" },
+                    { key: "tired", label: "😴 Fatigued" },
+                    { key: "anxious", label: "😰 Anxious" }
+                  ].map(btn => (
+                    <button
+                      key={btn.key}
+                      onClick={() => setComfortFeeling(btn.key as any)}
+                      className={`loc-tag ${comfortFeeling === btn.key ? "active" : ""}`}
+                      style={{ fontSize: "0.85rem", padding: "8px 16px" }}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{
+                  padding: "20px",
+                  background: comfortFeeling === "sniffling" ? "rgba(99, 102, 241, 0.06)" : 
+                             comfortFeeling === "tired" ? "rgba(245, 158, 11, 0.06)" : "rgba(16, 185, 129, 0.06)",
+                  border: `1px solid ${
+                    comfortFeeling === "sniffling" ? "rgba(99, 102, 241, 0.2)" : 
+                    comfortFeeling === "tired" ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.2)"
+                  }`,
+                  borderRadius: "12px",
+                  minHeight: 120,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  transition: "all 0.3s ease"
+                }}>
+                  {comfortFeeling === "sniffling" && (
+                    <>
+                      <strong style={{ color: "#818cf8", fontSize: "0.875rem", marginBottom: 6 }}>💧 Soothing your nasal passages:</strong>
+                      <p style={{ fontSize: "0.8125rem", color: "var(--text)", lineHeight: 1.5, margin: 0 }}>
+                        Take a slow breath. Sipping warm herbal tea or inhaling steam from a warm shower helps thin mucus and relaxes irritated tissues. You are safe, and this sensation will ease soon.
+                      </p>
+                    </>
+                  )}
+                  {comfortFeeling === "tired" && (
+                    <>
+                      <strong style={{ color: "#fb923c", fontSize: "0.875rem", marginBottom: 6 }}>🌿 Rest is part of recovery:</strong>
+                      <p style={{ fontSize: "0.8125rem", color: "var(--text)", lineHeight: 1.5, margin: 0 }}>
+                        Allergy flare-ups consume physical energy as your body works to protect itself. Allow yourself to rest without guilt. Close your eyes and keep indoor air clear. You are healing.
+                      </p>
+                    </>
+                  )}
+                  {comfortFeeling === "anxious" && (
+                    <>
+                      <strong style={{ color: "#34d399", fontSize: "0.875rem", marginBottom: 6 }}>🌬️ Calming the nervous system:</strong>
+                      <p style={{ fontSize: "0.8125rem", color: "var(--text)", lineHeight: 1.5, margin: 0 }}>
+                        The body's natural inflammatory response can mimic heart rate increases and mild anxiety. It is just a physical reaction. Focus on slow, calm breathing. This will pass gently.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section style={{ position: "relative", zIndex: 1, padding: "40px 0 80px" }}>
+        <div className="container">
+          <div style={{ textAlign: "center", marginBottom: 48 }}>
+            <div className="pill pill-indigo" style={{ marginBottom: 16 }}>Clinical Features</div>
+            <h2 className="t-title">Carefully Designed Ecosystem</h2>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
             {features.map((f, i) => (
@@ -182,92 +310,16 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CALCULATOR */}
-      <section style={{ position: "relative", zIndex: 1, padding: "0 0 96px" }}>
-        <div className="container">
-          <div className="card-hi" style={{ padding: "40px 32px" }}>
-            <div style={{ textAlign: "center", marginBottom: 40 }}>
-              <div className="pill pill-indigo" style={{ marginBottom: 16 }}>Wellness calculator</div>
-              <h2 className="t-title" style={{ fontSize: "clamp(1.4rem,3vw,2rem)" }}>How many days could you reclaim?</h2>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 40 }}>
-              {/* Sliders */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <label className="t-label">Monthly flare-ups</label>
-                    <span className="pill pill-indigo">{flareups} episodes</span>
-                  </div>
-                  <input type="range" min={1} max={20} value={flareups} onChange={e => setFlareups(+e.target.value)} />
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-                    <span className="t-label" style={{ fontSize: "0.65rem" }}>1</span>
-                    <span className="t-label" style={{ fontSize: "0.65rem" }}>20</span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <label className="t-label">Recovery days each</label>
-                    <span className="pill pill-indigo">{recovery} days</span>
-                  </div>
-                  <input type="range" min={1} max={7} value={recovery} onChange={e => setRecovery(+e.target.value)} />
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-                    <span className="t-label" style={{ fontSize: "0.65rem" }}>1</span>
-                    <span className="t-label" style={{ fontSize: "0.65rem" }}>7</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Results */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ padding: "20px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 14 }}>
-                  <div className="t-label" style={{ marginBottom: 8, fontSize: "0.65rem" }}>Without Zensit</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontSize: "2.2rem", fontWeight: 900, color: "#f87171", letterSpacing: "-0.04em" }}>{total}</span>
-                    <span className="t-label" style={{ color: "var(--muted)" }}>days compromised / mo</span>
-                  </div>
-                </div>
-                <div style={{ padding: "20px", background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 14 }}>
-                  <div className="t-label" style={{ marginBottom: 8, fontSize: "0.65rem" }}>With Zensit</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontSize: "2.2rem", fontWeight: 900, color: "#818cf8", letterSpacing: "-0.04em" }}>{with_z}</span>
-                    <span className="t-label" style={{ color: "var(--muted)" }}>days projected / mo</span>
-                  </div>
-                </div>
-                <div style={{ padding: "20px", background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 14 }}>
-                  <div className="t-label" style={{ marginBottom: 8, fontSize: "0.65rem" }}>Days reclaimed</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontSize: "2.5rem", fontWeight: 900, color: "#4ade80", letterSpacing: "-0.04em" }}>{saved}</span>
-                    <span className="t-label" style={{ color: "#4ade80" }}>≈ {pct}% better</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* CTA */}
-      <section style={{ position: "relative", zIndex: 1, padding: "0 0 96px", textAlign: "center" }}>
-        <div className="container" style={{ maxWidth: 560 }}>
-          <h2 className="t-title" style={{ marginBottom: 16 }}>
-            Ready to understand<br /><span className="grad-text">your allergies?</span>
-          </h2>
-          <p className="t-body" style={{ marginBottom: 32 }}>Free. Works offline. Exports to MedGemma.</p>
-          <Link href="/wizard" className="btn btn-primary btn-lg">Open Symptom Wizard →</Link>
+      <section style={{ position: "relative", zIndex: 1, padding: "0 0 96px" }}>
+        <div className="container" style={{ textAlign: "center" }}>
+          <h2 className="t-title" style={{ marginBottom: 16 }}>Take a peaceful step today</h2>
+          <p className="t-body" style={{ maxWidth: 460, margin: "0 auto 32px" }}>
+            Start building your health logs with comforting and simple telemetry monitoring.
+          </p>
+          <Link href="/wizard" className="btn btn-primary btn-lg">Start Logging</Link>
         </div>
       </section>
-
-      {/* FOOTER */}
-      <footer style={{ position: "relative", zIndex: 1, borderTop: "1px solid var(--border)", padding: "24px 0" }}>
-        <div className="container" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, color: "var(--muted)", fontSize: "0.8125rem" }}>
-            <img src="/icon-192x192.png" alt="Zensit" style={{ width: 18, height: 18, objectFit: "contain" }} />
-            Zensit · Personal Allergy Telemetry
-          </span>
-          <span className="t-label" style={{ fontSize: "0.65rem" }}>© 2026 · PWA Ready · A Digib Fascination </span>
-        </div>
-      </footer>
     </div>
   );
 }

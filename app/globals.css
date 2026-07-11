@@ -385,3 +385,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   }
 }
 
+/* breathing animation */
+@keyframes pulse-breath {
+  0%, 100% {
+    transform: scale(1);
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.1);
+  }
+  50% {
+    transform: scale(1.15);
+    background: rgba(99, 102, 241, 0.18);
+    box-shadow: 0 0 25px rgba(99, 102, 241, 0.35);
+  }
+}
+

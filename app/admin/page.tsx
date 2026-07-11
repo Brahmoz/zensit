@@ -352,6 +352,18 @@ export default function Admin() {
                       <span className="pill pill-indigo" style={{ fontSize: "0.7rem" }}>📍 {loc}</span>
                     </div>
 
+                    {/* patient & feeling */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                      <span style={{ fontSize: "0.875rem", fontWeight: 800, color: "#fff" }}>
+                        👤 {l.profile?.name || "Anonymous"}
+                      </span>
+                      {l.profile?.feeling && (
+                        <span className="pill pill-indigo" style={{ fontSize: "0.7rem", background: "rgba(99, 102, 241, 0.1)" }}>
+                          {l.profile.feeling}
+                        </span>
+                      )}
+                    </div>
+
                     {/* climate row */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       {[
