@@ -37,6 +37,7 @@ export default function Wizard() {
     weight: string;
     gender: string;
     age: string;
+    reminderInterval: string;
   }
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -44,7 +45,8 @@ export default function Wizard() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newProfile, setNewProfile] = useState({
     name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌",
-    bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: ""
+    bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "",
+    reminderInterval: "none"
   });
 
   const [profile, setProfile] = useState({
@@ -71,7 +73,7 @@ export default function Wizard() {
           console.error(e);
         }
       } else {
-        const seed = [{ id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Male", age: "" }];
+        const seed = [{ id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Male", age: "", reminderInterval: "none" }];
         localStorage.setItem("zensit_user_profiles", JSON.stringify(seed));
         setProfiles(seed);
         setActiveProfileId("default");
@@ -96,6 +98,7 @@ export default function Wizard() {
       weight: newProfile.weight,
       gender: newProfile.gender,
       age: newProfile.age,
+      reminderInterval: newProfile.reminderInterval
     };
     const updated = [...profiles, newP];
     setProfiles(updated);
@@ -104,7 +107,7 @@ export default function Wizard() {
     setActiveProfileId(newP.id);
     setProfile(p => ({ ...p, name: newP.name }));
     setShowAddForm(false);
-    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "" });
+    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "", reminderInterval: "none" });
   };
 
   const deleteProfile = (id: string, e: React.MouseEvent) => {
@@ -182,6 +185,9 @@ export default function Wizard() {
         exposure: { temperature: wx.temp, humidity: wx.hum, foodIntake: food, medicines: meds },
         timestamp: new Date().toISOString(),
       });
+      if (typeof window !== "undefined") {
+        localStorage.setItem("zensit_last_log_timestamp", new Date().toISOString());
+      }
       setSavedState(true);
     } catch (e) {
       console.error(e);
@@ -335,6 +341,35 @@ export default function Wizard() {
                           <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "capitalize" }}>
                             {p.allergies} Triggers • {p.feeling || "Calm 😌"}
                           </div>
+                          
+                          {/* Vitals and Reminder chips */}
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                            {p.gender && p.gender !== "Prefer not to say" && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(129,140,248,0.12)", color: "#818cf8", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
+                                {p.gender === "Male" ? "♂ Male" : p.gender === "Female" ? "♀ Female" : p.gender}
+                              </span>
+                            )}
+                            {p.bloodGroup && p.bloodGroup !== "Unknown" && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(239,68,68,0.12)", color: "#f87171", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
+                                🩸 {p.bloodGroup}
+                              </span>
+                            )}
+                            {p.age && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(16,185,129,0.1)", color: "#6ee7b7", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
+                                {p.age}y
+                              </span>
+                            )}
+                            {p.weight && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(245,158,11,0.1)", color: "#fcd34d", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
+                                {p.weight}kg
+                              </span>
+                            )}
+                            {p.reminderInterval && p.reminderInterval !== "none" && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(168,85,247,0.12)", color: "#c084fc", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
+                                🔔 {p.reminderInterval === "1m" ? "1 Min" : p.reminderInterval === "4h" ? "4 Hours" : p.reminderInterval === "8h" ? "8 Hours" : "24 Hours"}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -475,6 +510,34 @@ export default function Wizard() {
                           value={newProfile.weight}
                           onChange={e => setNewProfile(prev => ({ ...prev, weight: e.target.value }))}
                         />
+                      </div>
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Logging Reminders</label>
+                        <select
+                          className="input"
+                          value={newProfile.reminderInterval}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setNewProfile(prev => ({ ...prev, reminderInterval: val }));
+                            if (val !== "none" && typeof window !== "undefined" && "Notification" in window) {
+                              Notification.requestPermission().then(permission => {
+                                if (permission === "granted") {
+                                  new Notification("Zensit Reminders", {
+                                    body: "Reminders enabled! You will be notified to log data.",
+                                    icon: "/icon-192x192.png"
+                                  });
+                                }
+                              });
+                            }
+                          }}
+                          style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}
+                        >
+                          <option value="none">No reminders (Off)</option>
+                          <option value="1m">Every Minute (for Testing 🧪)</option>
+                          <option value="4h">Every 4 Hours 🕐</option>
+                          <option value="8h">Every 8 Hours 🕦</option>
+                          <option value="24h">Daily (Every 24 Hours) 📅</option>
+                        </select>
                       </div>
                     </div>
                   </div>

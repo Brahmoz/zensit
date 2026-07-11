@@ -132,6 +132,66 @@ export default function EmergencyListener() {
     return () => clearInterval(interval);
   }, []);
 
+  // Background Reminder Scheduler
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const checkReminders = () => {
+      if (!activeProfile || !activeProfile.reminderInterval || activeProfile.reminderInterval === "none") {
+        return;
+      }
+
+      // Resolve interval in ms
+      let intervalMs = 0;
+      const val = activeProfile.reminderInterval;
+      if (val === "1m") {
+        intervalMs = 60 * 1000; // 1 minute for testing
+      } else if (val === "4h") {
+        intervalMs = 4 * 60 * 60 * 1000;
+      } else if (val === "8h") {
+        intervalMs = 8 * 60 * 60 * 1000;
+      } else if (val === "24h") {
+        intervalMs = 24 * 60 * 60 * 1000;
+      }
+
+      if (intervalMs === 0) return;
+
+      const lastLogStr = localStorage.getItem("zensit_last_log_timestamp");
+      const lastNotifiedStr = localStorage.getItem(`zensit_last_notified_${activeProfile.id}`);
+
+      const now = Date.now();
+      // Default to 2 days ago if they never logged, ensuring immediate initial reminder
+      const lastLogTime = lastLogStr ? new Date(lastLogStr).getTime() : now - (2 * 24 * 60 * 60 * 1000);
+      const lastNotifiedTime = lastNotifiedStr ? new Date(lastNotifiedStr).getTime() : 0;
+
+      const elapsedSinceLog = now - lastLogTime;
+
+      // If enough time has passed since the last log
+      if (elapsedSinceLog >= intervalMs) {
+        // If we haven't notified them yet for this missed log window
+        if (lastNotifiedTime <= lastLogTime) {
+          try {
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("Zensit Telemetry Log", {
+                body: `Hi ${activeProfile.name}, it's time to log your symptoms and exposure data!`,
+                icon: "/icon-192x192.png",
+                tag: "zensit-reminder" // overrides older alerts
+              });
+              // Persist notified time so we don't spam them
+              localStorage.setItem(`zensit_last_notified_${activeProfile.id}`, new Date().toISOString());
+            }
+          } catch (e) {
+            console.warn("Failed to dispatch web notification:", e);
+          }
+        }
+      }
+    };
+
+    // Run every 10s to keep checks lightweight but responsive
+    const id = setInterval(checkReminders, 10000);
+    return () => clearInterval(id);
+  }, [activeProfile]);
+
   // Get user GPS once
   useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.geolocation) {
