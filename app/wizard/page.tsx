@@ -32,12 +32,20 @@ export default function Wizard() {
     allergies: string;
     color: string;
     feeling: string;
+    // Health vitals
+    bloodGroup: string;
+    weight: string;
+    gender: string;
+    age: string;
   }
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>("default");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newProfile, setNewProfile] = useState({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" });
+  const [newProfile, setNewProfile] = useState({
+    name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌",
+    bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: ""
+  });
 
   const [profile, setProfile] = useState({
     name: "Nandu",
@@ -54,8 +62,8 @@ export default function Wizard() {
           const parsed = JSON.parse(stored);
           setProfiles(parsed);
           if (parsed.length > 0) {
-            // Find active profile
-            const active = parsed.find((p: any) => p.id === activeProfileId) || parsed[0];
+            const savedId = localStorage.getItem("zensit_active_profile_id");
+            const active = (savedId && parsed.find((p: any) => p.id === savedId)) || parsed[0];
             setActiveProfileId(active.id);
             setProfile(p => ({ ...p, name: active.name }));
           }
@@ -63,7 +71,7 @@ export default function Wizard() {
           console.error(e);
         }
       } else {
-        const seed = [{ id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" }];
+        const seed = [{ id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Male", age: "" }];
         localStorage.setItem("zensit_user_profiles", JSON.stringify(seed));
         setProfiles(seed);
         setActiveProfileId("default");
@@ -84,6 +92,10 @@ export default function Wizard() {
       allergies: newProfile.allergies,
       color: newProfile.color,
       feeling: newProfile.feeling,
+      bloodGroup: newProfile.bloodGroup,
+      weight: newProfile.weight,
+      gender: newProfile.gender,
+      age: newProfile.age,
     };
     const updated = [...profiles, newP];
     setProfiles(updated);
@@ -92,7 +104,7 @@ export default function Wizard() {
     setActiveProfileId(newP.id);
     setProfile(p => ({ ...p, name: newP.name }));
     setShowAddForm(false);
-    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" });
+    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌", bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "" });
   };
 
   const deleteProfile = (id: string, e: React.MouseEvent) => {
@@ -414,34 +426,83 @@ export default function Wizard() {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Theme Accent</label>
-                      <div style={{ display: "flex", gap: 8, height: 44, alignItems: "center" }}>
-                        {[
-                          { val: "#6366f1", label: "Indigo" },
-                          { val: "#ec4899", label: "Rose" },
-                          { val: "#10b981", label: "Emerald" },
-                          { val: "#f59e0b", label: "Amber" },
-                          { val: "#3b82f6", label: "Blue" }
-                        ].map(color => (
-                          <button
-                            key={color.val}
-                            type="button"
-                            onClick={() => setNewProfile(prev => ({ ...prev, color: color.val }))}
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: "50%",
-                              background: color.val,
-                              border: newProfile.color === color.val ? "2px solid #fff" : "none",
-                              cursor: "pointer",
-                              boxShadow: newProfile.color === color.val ? `0 0 10px ${color.val}` : "none",
-                              transition: "transform 0.1s"
-                            }}
-                            title={color.label}
-                          />
-                        ))}
+                  </div>
+
+                  {/* ── Health Vitals ─────────────────────────────────── */}
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                    <div className="t-label" style={{ marginBottom: 10, color: "var(--muted)", fontSize: "0.7rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      🩺 Health Vitals (optional)
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Gender</label>
+                        <select
+                          className="input"
+                          value={newProfile.gender}
+                          onChange={e => setNewProfile(prev => ({ ...prev, gender: e.target.value }))}
+                          style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}
+                        >
+                          {["Male", "Female", "Non-binary", "Prefer not to say"].map(g => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
                       </div>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Blood Group</label>
+                        <select
+                          className="input"
+                          value={newProfile.bloodGroup}
+                          onChange={e => setNewProfile(prev => ({ ...prev, bloodGroup: e.target.value }))}
+                          style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}
+                        >
+                          {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "Unknown"].map(g => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Age (years)</label>
+                        <input
+                          className="input" type="number" min="1" max="120" placeholder="e.g. 28"
+                          value={newProfile.age}
+                          onChange={e => setNewProfile(prev => ({ ...prev, age: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Weight (kg)</label>
+                        <input
+                          className="input" type="number" min="1" max="300" placeholder="e.g. 65"
+                          value={newProfile.weight}
+                          onChange={e => setNewProfile(prev => ({ ...prev, weight: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Theme Accent</label>
+                    <div style={{ display: "flex", gap: 8, height: 44, alignItems: "center" }}>
+                      {[
+                        { val: "#6366f1", label: "Indigo" },
+                        { val: "#ec4899", label: "Rose" },
+                        { val: "#10b981", label: "Emerald" },
+                        { val: "#f59e0b", label: "Amber" },
+                        { val: "#3b82f6", label: "Blue" }
+                      ].map(color => (
+                        <button
+                          key={color.val}
+                          type="button"
+                          onClick={() => setNewProfile(prev => ({ ...prev, color: color.val }))}
+                          style={{
+                            width: 24, height: 24, borderRadius: "50%", background: color.val,
+                            border: newProfile.color === color.val ? "2px solid #fff" : "none",
+                            cursor: "pointer",
+                            boxShadow: newProfile.color === color.val ? `0 0 10px ${color.val}` : "none",
+                            transition: "transform 0.1s"
+                          }}
+                          title={color.label}
+                        />
+                      ))}
                     </div>
                   </div>
 

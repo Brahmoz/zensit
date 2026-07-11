@@ -2,16 +2,48 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
+// Healthy box-breathing: Inhale 4s → Hold 4s → Exhale 6s → Hold 2s = 16s cycle
+const BREATH_CYCLE: { phase: string; label: string; duration: number; color: string }[] = [
+  { phase: "inhale",     label: "Inhale",     duration: 4, color: "#818cf8" },
+  { phase: "hold-in",   label: "Hold",       duration: 4, color: "#a78bfa" },
+  { phase: "exhale",    label: "Exhale",     duration: 6, color: "#67e8f9" },
+  { phase: "hold-out",  label: "Rest",       duration: 2, color: "#6ee7b7" },
+];
+
 export default function Home() {
   const [navSolid, setNavSolid] = useState(false);
   const [comfortFeeling, setComfortFeeling] = useState<"sniffling" | "tired" | "anxious">("sniffling");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Breath state
+  const [breathPhaseIdx, setBreathPhaseIdx] = useState(0);
+  const [breathTick, setBreathTick] = useState(0); // seconds elapsed in current phase
 
   useEffect(() => {
     const fn = () => setNavSolid(window.scrollY > 40);
     window.addEventListener("scroll", fn);
     return () => window.removeEventListener("scroll", fn);
   }, []);
+
+  // Breath tick: fires every 100ms, advances seconds
+  useEffect(() => {
+    let ms = 0;
+    const id = setInterval(() => {
+      ms += 100;
+      if (ms >= 1000) {
+        ms = 0;
+        setBreathTick(t => {
+          const phase = BREATH_CYCLE[breathPhaseIdx];
+          if (t + 1 >= phase.duration) {
+            setBreathPhaseIdx(i => (i + 1) % BREATH_CYCLE.length);
+            return 0;
+          }
+          return t + 1;
+        });
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [breathPhaseIdx]);
 
   // Soothing, slow-floating particle background
   useEffect(() => {
@@ -151,26 +183,83 @@ export default function Home() {
             <Link href="/admin" className="btn btn-ghost btn-lg">Clinical Console</Link>
           </div>
 
-          {/* Breathing Circle Cue */}
-          <div className="anim-fadeup delay-5" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginTop: 48 }}>
-            <div style={{
-              width: 52,
-              height: 52,
-              borderRadius: "50%",
-              background: "rgba(99, 102, 241, 0.1)",
-              border: "1.5px solid rgba(99, 102, 241, 0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "#818cf8",
-              animation: "pulse-breath 6s infinite ease-in-out"
-            }}>
-              Breathe
-            </div>
-            <span className="t-label" style={{ fontSize: "0.65rem", color: "var(--muted)" }}>Inhale comfort, exhale tension</span>
-          </div>
+          {/* ── BREATHING GUIDE: logo + phase ring ───────────────────── */}
+          {(() => {
+            const bp = BREATH_CYCLE[breathPhaseIdx];
+            const progress = breathTick / bp.duration; // 0→1
+            const RING_R = 52;
+            const RING_C = 72; // cx/cy of SVG
+            const circ = 2 * Math.PI * RING_R;
+
+            // Logo scale: inhale grows, hold-in stays big, exhale shrinks, hold-out stays small
+            const logoScale = bp.phase === "inhale"
+              ? 1 + 0.28 * progress
+              : bp.phase === "hold-in"
+              ? 1.28
+              : bp.phase === "exhale"
+              ? 1.28 - 0.28 * progress
+              : 1.0;
+
+            // Ring fills clockwise during inhale/hold-in, drains during exhale/hold-out
+            const ringProgress = (bp.phase === "inhale" || bp.phase === "hold-in")
+              ? (bp.phase === "inhale" ? progress * 0.5 : 0.5 + progress * 0.5)
+              : (bp.phase === "exhale" ? 1 - progress * 0.5 : 0.5 - progress * 0.5);
+
+            return (
+              <div className="anim-fadeup delay-5" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 52 }}>
+                <div style={{ position: "relative", width: RING_C * 2, height: RING_C * 2 }}>
+                  {/* SVG ring */}
+                  <svg width={RING_C * 2} height={RING_C * 2} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
+                    {/* Track */}
+                    <circle cx={RING_C} cy={RING_C} r={RING_R} fill="none" stroke="rgba(129,140,248,0.12)" strokeWidth="3" />
+                    {/* Progress arc */}
+                    <circle
+                      cx={RING_C} cy={RING_C} r={RING_R}
+                      fill="none" stroke={bp.color} strokeWidth="3.5"
+                      strokeDasharray={circ}
+                      strokeDashoffset={circ * (1 - ringProgress)}
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-dashoffset 0.95s ease, stroke 0.6s ease" }}
+                    />
+                  </svg>
+
+                  {/* Logo at center, scales with phase */}
+                  <div style={{
+                    position: "absolute", inset: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center"
+                  }}>
+                    <img
+                      src="/icon-192x192.png"
+                      alt="Breathe with Zensit"
+                      style={{
+                        width: 52, height: 52,
+                        objectFit: "contain",
+                        transform: `scale(${logoScale})`,
+                        transition: "transform 0.95s ease",
+                        filter: `drop-shadow(0 0 ${6 + logoScale * 6}px ${bp.color}88)`
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Phase label + timer */}
+                <div style={{ textAlign: "center", lineHeight: 1.3 }}>
+                  <div style={{
+                    fontSize: "0.95rem", fontWeight: 800,
+                    color: bp.color,
+                    transition: "color 0.6s ease",
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase"
+                  }}>
+                    {bp.label}
+                  </div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: 2 }}>
+                    {bp.duration - breathTick}s remaining · box breathing
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </section>
 
