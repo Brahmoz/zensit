@@ -2,12 +2,12 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-// Healthy box-breathing: Inhale 4s → Hold 4s → Exhale 6s → Hold 2s = 16s cycle
-const BREATH_CYCLE: { phase: string; label: string; duration: number; color: string }[] = [
-  { phase: "inhale",     label: "Inhale",     duration: 4, color: "#818cf8" },
-  { phase: "hold-in",   label: "Hold",       duration: 4, color: "#a78bfa" },
-  { phase: "exhale",    label: "Exhale",     duration: 6, color: "#67e8f9" },
-  { phase: "hold-out",  label: "Rest",       duration: 2, color: "#6ee7b7" },
+// Healthy human Box Breathing: Inhale 4s → Hold 4s → Exhale 4s → Hold 4s = 16s cycle
+const BREATH_CYCLE: { phase: string; label: string; duration: number; color: string; bgGlow: string; instruction: string }[] = [
+  { phase: "inhale",   label: "Inhale", duration: 4, color: "#818cf8", bgGlow: "rgba(129, 140, 248, 0.2)",  instruction: "Breathe in through your nose..." },
+  { phase: "hold-in",  label: "Hold",   duration: 4, color: "#a78bfa", bgGlow: "rgba(167, 139, 250, 0.2)",  instruction: "Hold your breath calmly..." },
+  { phase: "exhale",   label: "Exhale", duration: 4, color: "#22d3ee", bgGlow: "rgba(34, 211, 238, 0.2)",  instruction: "Exhale fully through your mouth..." },
+  { phase: "hold-out", label: "Hold",   duration: 4, color: "#34d399", bgGlow: "rgba(52, 211, 153, 0.2)",  instruction: "Rest and hold before inhale..." }
 ];
 
 export default function Home() {
@@ -17,7 +17,7 @@ export default function Home() {
 
   // Breath state
   const [breathPhaseIdx, setBreathPhaseIdx] = useState(0);
-  const [breathTick, setBreathTick] = useState(0); // seconds elapsed in current phase
+  const [breathTick, setBreathTick] = useState(0); // decimal seconds in current phase
 
   useEffect(() => {
     const fn = () => setNavSolid(window.scrollY > 40);
@@ -25,23 +25,20 @@ export default function Home() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  // Breath tick: fires every 100ms, advances seconds
+  // Breath tick: fires every 50ms for ultra-smooth sub-second rendering
   useEffect(() => {
-    let ms = 0;
+    const tickMs = 50;
     const id = setInterval(() => {
-      ms += 100;
-      if (ms >= 1000) {
-        ms = 0;
-        setBreathTick(t => {
-          const phase = BREATH_CYCLE[breathPhaseIdx];
-          if (t + 1 >= phase.duration) {
-            setBreathPhaseIdx(i => (i + 1) % BREATH_CYCLE.length);
-            return 0;
-          }
-          return t + 1;
-        });
-      }
-    }, 100);
+      setBreathTick(t => {
+        const phase = BREATH_CYCLE[breathPhaseIdx];
+        const nextTick = t + (tickMs / 1000);
+        if (nextTick >= phase.duration) {
+          setBreathPhaseIdx(i => (i + 1) % BREATH_CYCLE.length);
+          return 0;
+        }
+        return nextTick;
+      });
+    }, tickMs);
     return () => clearInterval(id);
   }, [breathPhaseIdx]);
 
@@ -133,35 +130,127 @@ export default function Home() {
 
       {/* HERO */}
       <section style={{
-        position: "relative", zIndex: 1, minHeight: "85svh", display: "flex", alignItems: "center",
-        justifyContent: "center", paddingTop: 120, paddingBottom: 60, textAlign: "center"
+        position: "relative", zIndex: 1, minHeight: "90svh", display: "flex", alignItems: "center",
+        justifyContent: "center", paddingTop: 110, paddingBottom: 50, textAlign: "center"
       }}>
         <div className="container" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
           
-          {/* Centered stage pulsing logo */}
-          <div className="anim-fadeup" style={{ 
-            marginBottom: 28,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 110,
-            height: 110,
-            borderRadius: "50%",
-            background: "rgba(99, 102, 241, 0.06)",
-            border: "1.5px solid rgba(99, 102, 241, 0.25)",
-            boxShadow: "0 0 35px rgba(99, 102, 241, 0.12)"
-          }}>
-            <img 
-              src="/icon-192x192.png" 
-              alt="Zensit Lotus Logo" 
-              style={{ 
-                width: 64, 
-                height: 64, 
-                objectFit: "contain",
-                animation: "pulse 4s infinite ease-in-out" 
-              }} 
-            />
-          </div>
+          {/* ── PREMIUM INTERACTIVE BOX BREATHING CIRCLE ── */}
+          {(() => {
+            const bp = BREATH_CYCLE[breathPhaseIdx];
+            const progress = breathTick / bp.duration; // 0 to 1
+            const R_R = 70;
+            const R_C = 90;
+            const circ = 2 * Math.PI * R_R;
+
+            // Logo scale matching breath sequence
+            let logoScale = 1.0;
+            if (bp.phase === "inhale") {
+              logoScale = 1.0 + (0.28 * progress);
+            } else if (bp.phase === "hold-in") {
+              logoScale = 1.28;
+            } else if (bp.phase === "exhale") {
+              logoScale = 1.28 - (0.28 * progress);
+            } else {
+              logoScale = 1.0;
+            }
+
+            // circular timeline stroke offset
+            const strokeOffset = circ * (1 - progress);
+
+            return (
+              <div className="anim-fadeup" style={{ 
+                marginBottom: 36,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16
+              }}>
+                <style dangerouslySetInnerHTML={{ __html: `
+                  @keyframes breath-ripple {
+                    0% { transform: scale(0.95); opacity: 0.8; }
+                    50% { transform: scale(1.22); opacity: 0.15; }
+                    100% { transform: scale(1.4); opacity: 0; }
+                  }
+                `}} />
+
+                <div style={{ position: "relative", width: R_C * 2, height: R_C * 2 }}>
+                  {/* Glowing background ripple during Inhale/Hold */}
+                  {(bp.phase === "inhale" || bp.phase === "hold-in") && (
+                    <div style={{
+                      position: "absolute",
+                      inset: 0,
+                      borderRadius: "50%",
+                      background: `radial-gradient(circle, ${bp.color}44 0%, transparent 70%)`,
+                      animation: "breath-ripple 2.5s infinite linear",
+                      pointerEvents: "none"
+                    }} />
+                  )}
+
+                  {/* SVG progress ring */}
+                  <svg width={R_C * 2} height={R_C * 2} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
+                    <circle cx={R_C} cy={R_C} r={R_R} fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="4" />
+                    <circle
+                      cx={R_C} cy={R_C} r={R_R}
+                      fill="none" stroke={bp.color} strokeWidth="4.5"
+                      strokeDasharray={circ}
+                      strokeDashoffset={strokeOffset}
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-dashoffset 0.06s linear, stroke 0.6s ease" }}
+                    />
+                  </svg>
+
+                  {/* Rounded square logo frame */}
+                  <div style={{
+                    position: "absolute",
+                    inset: 20,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(10, 15, 30, 0.7)",
+                    border: `2px solid ${bp.color}`,
+                    boxShadow: `0 0 35px ${bp.color}25`,
+                    transform: `scale(${logoScale})`,
+                    transition: "transform 0.08s linear, border-color 0.6s ease, box-shadow 0.6s ease"
+                  }}>
+                    <img 
+                      src="/Zen_logo.png" 
+                      alt="Zensit Logo" 
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "/icon-192x192.png";
+                      }}
+                      style={{ 
+                        width: "100%", 
+                        height: "100%", 
+                        objectFit: "cover"
+                      }} 
+                    />
+                  </div>
+                </div>
+
+                {/* Breathing instructions HUD */}
+                <div style={{ textAlign: "center" }}>
+                  <span className="pill" style={{ 
+                    background: `${bp.color}15`, 
+                    color: bp.color, 
+                    border: `1.5px solid ${bp.color}35`,
+                    padding: "6px 18px",
+                    fontWeight: 800,
+                    letterSpacing: "0.08em",
+                    fontSize: "0.8rem",
+                    textTransform: "uppercase"
+                  }}>
+                    {bp.label} · {Math.max(1, Math.ceil(bp.duration - breathTick))}s
+                  </span>
+                  <div className="t-label" style={{ marginTop: 10, fontSize: "0.85rem", color: "var(--muted)", fontWeight: 500 }}>
+                    {bp.instruction}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="anim-fadeup delay-1" style={{ marginBottom: 20 }}>
             <span className="pill pill-indigo">
@@ -182,84 +271,6 @@ export default function Home() {
             <Link href="/wizard" className="btn btn-primary btn-lg">Start Logging</Link>
             <Link href="/admin" className="btn btn-ghost btn-lg">Clinical Console</Link>
           </div>
-
-          {/* ── BREATHING GUIDE: logo + phase ring ───────────────────── */}
-          {(() => {
-            const bp = BREATH_CYCLE[breathPhaseIdx];
-            const progress = breathTick / bp.duration; // 0→1
-            const RING_R = 52;
-            const RING_C = 72; // cx/cy of SVG
-            const circ = 2 * Math.PI * RING_R;
-
-            // Logo scale: inhale grows, hold-in stays big, exhale shrinks, hold-out stays small
-            const logoScale = bp.phase === "inhale"
-              ? 1 + 0.28 * progress
-              : bp.phase === "hold-in"
-              ? 1.28
-              : bp.phase === "exhale"
-              ? 1.28 - 0.28 * progress
-              : 1.0;
-
-            // Ring fills clockwise during inhale/hold-in, drains during exhale/hold-out
-            const ringProgress = (bp.phase === "inhale" || bp.phase === "hold-in")
-              ? (bp.phase === "inhale" ? progress * 0.5 : 0.5 + progress * 0.5)
-              : (bp.phase === "exhale" ? 1 - progress * 0.5 : 0.5 - progress * 0.5);
-
-            return (
-              <div className="anim-fadeup delay-5" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 52 }}>
-                <div style={{ position: "relative", width: RING_C * 2, height: RING_C * 2 }}>
-                  {/* SVG ring */}
-                  <svg width={RING_C * 2} height={RING_C * 2} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
-                    {/* Track */}
-                    <circle cx={RING_C} cy={RING_C} r={RING_R} fill="none" stroke="rgba(129,140,248,0.12)" strokeWidth="3" />
-                    {/* Progress arc */}
-                    <circle
-                      cx={RING_C} cy={RING_C} r={RING_R}
-                      fill="none" stroke={bp.color} strokeWidth="3.5"
-                      strokeDasharray={circ}
-                      strokeDashoffset={circ * (1 - ringProgress)}
-                      strokeLinecap="round"
-                      style={{ transition: "stroke-dashoffset 0.95s ease, stroke 0.6s ease" }}
-                    />
-                  </svg>
-
-                  {/* Logo at center, scales with phase */}
-                  <div style={{
-                    position: "absolute", inset: 0,
-                    display: "flex", alignItems: "center", justifyContent: "center"
-                  }}>
-                    <img
-                      src="/icon-192x192.png"
-                      alt="Breathe with Zensit"
-                      style={{
-                        width: 52, height: 52,
-                        objectFit: "contain",
-                        transform: `scale(${logoScale})`,
-                        transition: "transform 0.95s ease",
-                        filter: `drop-shadow(0 0 ${6 + logoScale * 6}px ${bp.color}88)`
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Phase label + timer */}
-                <div style={{ textAlign: "center", lineHeight: 1.3 }}>
-                  <div style={{
-                    fontSize: "0.95rem", fontWeight: 800,
-                    color: bp.color,
-                    transition: "color 0.6s ease",
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase"
-                  }}>
-                    {bp.label}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: 2 }}>
-                    {bp.duration - breathTick}s remaining · box breathing
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
         </div>
       </section>
 

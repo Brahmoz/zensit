@@ -132,7 +132,7 @@ export default function EmergencyListener() {
     setIsPressing(true);
     setPressProgress(0);
     const startTime = Date.now();
-    const duration = 2000;
+    const duration = 5000; // 5 seconds
     progressIntervalRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const pct = Math.min(100, (elapsed / duration) * 100);
@@ -375,12 +375,13 @@ export default function EmergencyListener() {
       {!myActiveAlertId && (
         <div style={{
           position: "fixed",
-          top: 14,
-          right: 14,
+          top: 15,
+          left: "50%",
+          transform: "translateX(-50%)",
           zIndex: 9000,
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-end",
+          alignItems: "center",
           gap: 6
         }}>
           {/* Tooltip above button during press */}
@@ -388,62 +389,75 @@ export default function EmergencyListener() {
             <div style={{
               background: "rgba(10,12,20,0.92)",
               border: "1px solid rgba(220,38,38,0.4)",
-              padding: "5px 10px",
-              borderRadius: 8,
-              fontSize: "0.68rem",
+              padding: "4px 8px",
+              borderRadius: 6,
+              fontSize: "0.65rem",
               color: "#fca5a5",
               fontWeight: 700,
-              whiteSpace: "nowrap"
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)"
             }}>
-              {Math.round(pressProgress)}% — release to cancel
+              Keep holding... {Math.round(pressProgress)}%
             </div>
           )}
 
-          {/* SVG ring + button */}
-          <div style={{ position: "relative", width: 48, height: 48 }}>
+          {/* Pill Container */}
+          <button
+            type="button"
+            onMouseDown={handlePressStart}
+            onMouseUp={handlePressEnd}
+            onMouseLeave={handlePressEnd}
+            onTouchStart={handlePressStart}
+            onTouchEnd={handlePressEnd}
+            style={{
+              position: "relative",
+              height: 38,
+              minWidth: 140,
+              borderRadius: 20,
+              background: isPressing
+                ? `rgba(220, 38, 38, ${0.15 + (pressProgress / 120)})`
+                : "rgba(220, 38, 38, 0.1)",
+              border: `1.5px solid ${isPressing ? "#ef4444" : "rgba(220, 38, 38, 0.4)"}`,
+              boxShadow: isPressing
+                ? `0 0 15px rgba(239, 68, 68, ${0.2 + pressProgress / 200})`
+                : "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: "0 16px",
+              color: "#fca5a5",
+              fontWeight: 800,
+              fontSize: "0.8rem",
+              letterSpacing: "0.03em",
+              userSelect: "none",
+              overflow: "hidden",
+              transform: isPressing ? `scale(${1 + pressProgress / 1000})` : "scale(1)",
+              transition: "transform 0.08s ease, background 0.1s ease, border-color 0.2s ease"
+            }}
+            title="Hold 5 seconds to broadcast Emergency SOS"
+          >
+            {/* Linear background progress bar */}
             {isPressing && (
-              <svg
-                width="48" height="48"
-                style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)", pointerEvents: "none" }}
-              >
-                <circle cx="24" cy="24" r="21" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="3" />
-                <circle
-                  cx="24" cy="24" r="21" fill="none" stroke="#fff" strokeWidth="3"
-                  strokeDasharray={`${2 * Math.PI * 21}`}
-                  strokeDashoffset={`${2 * Math.PI * 21 * (1 - pressProgress / 100)}`}
-                  strokeLinecap="round"
-                  style={{ transition: "stroke-dashoffset 0.05s linear" }}
-                />
-              </svg>
+              <div style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: `${pressProgress}%`,
+                background: "rgba(239, 68, 68, 0.25)",
+                zIndex: 0,
+                transition: "width 0.05s linear",
+                pointerEvents: "none"
+              }} />
             )}
-            <button
-              type="button"
-              onMouseDown={handlePressStart}
-              onMouseUp={handlePressEnd}
-              onMouseLeave={handlePressEnd}
-              onTouchStart={handlePressStart}
-              onTouchEnd={handlePressEnd}
-              style={{
-                position: "absolute", inset: 0,
-                width: "100%", height: "100%",
-                borderRadius: "50%",
-                background: isPressing
-                  ? `rgba(220, 38, 38, ${0.88 + pressProgress / 800})`
-                  : "rgba(220, 38, 38, 0.92)",
-                border: "2px solid rgba(255,255,255,0.3)",
-                cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "1.2rem", color: "#fff",
-                userSelect: "none",
-                transform: isPressing ? `scale(${1 + pressProgress / 450})` : "scale(1)",
-                transition: "transform 0.08s ease",
-                animation: isPressing ? "none" : "sos-btn-glow 2.5s infinite ease-in-out"
-              }}
-              title="Hold 2 seconds to broadcast Emergency SOS"
-            >
-              🚨
-            </button>
-          </div>
+
+            <span style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6 }}>
+              <span>🚨</span>
+              <span>SOS <span style={{ opacity: 0.8, fontWeight: 500 }}>(Hold 5s)</span></span>
+            </span>
+          </button>
         </div>
       )}
     </>
