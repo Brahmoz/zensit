@@ -34,12 +34,53 @@ export default function EmergencyListener() {
     return R * c;
   };
 
-  // Siren using Web Audio API — only called from user gesture handlers
+  // Pre-unlock AudioContext on first user click or tap (unlocks browser audio policy)
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioCtxRef.current) {
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioCtxRef.current = ctx;
+          
+          // Play silent buffer to fully unlock
+          const buffer = ctx.createBuffer(1, 1, 22050);
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(0);
+          
+          if (ctx.state === "suspended") {
+            ctx.resume();
+          }
+        } catch (e) {
+          console.warn("Failed to pre-unlock AudioContext:", e);
+        }
+      }
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+    window.addEventListener("click", unlock);
+    window.addEventListener("touchstart", unlock);
+    return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
+
+  // Siren using Web Audio API — only called from user gesture handlers or auto-fired if pre-unlocked
   const startSiren = () => {
     try {
-      if (audioCtxRef.current) return;
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioCtxRef.current = ctx;
+      if (oscRef.current) return; // Siren is already playing
+
+      let ctx = audioCtxRef.current;
+      if (!ctx) {
+        ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioCtxRef.current = ctx;
+      }
+      
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -53,7 +94,7 @@ export default function EmergencyListener() {
 
       let isHigh = false;
       sirenIntervalRef.current = setInterval(() => {
-        if (oscRef.current) {
+        if (oscRef.current && ctx) {
           oscRef.current.frequency.setValueAtTime(isHigh ? 950 : 650, ctx.currentTime);
           isHigh = !isHigh;
         }
@@ -66,7 +107,7 @@ export default function EmergencyListener() {
   const stopSiren = () => {
     if (sirenIntervalRef.current) { clearInterval(sirenIntervalRef.current); sirenIntervalRef.current = null; }
     if (oscRef.current) { try { oscRef.current.stop(); } catch {} oscRef.current = null; }
-    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    // Do not close audioCtxRef.current to preserve the unlock status, just let it idle
   };
 
   // Load active profile from localStorage, poll every 4s
@@ -120,8 +161,11 @@ export default function EmergencyListener() {
         return sameProfile || isNearby;
       });
       setActiveAlerts(matches);
-      // AudioContext must be triggered by user gesture — siren NOT auto-started here
-      if (matches.length === 0) stopSiren();
+      if (matches.length > 0) {
+        startSiren();
+      } else {
+        stopSiren();
+      }
     });
 
     return () => { unsub(); stopSiren(); };
