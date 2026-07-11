@@ -77,7 +77,7 @@ export default function Admin() {
     return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%` : "—";
   };
 
-  const symCounts: Record<string, number> = { itching: 0, headache: 0, redness: 0, mucus: 0, vomiting: 0, sneezing: 0 };
+  const symCounts: Record<string, number> = { itching: 0, headache: 0, redness: 0, mucus: 0, vomiting: 0, bleeding: 0, sneezing: 0 };
   filteredLogs.forEach(l => {
     Object.entries(l.symptoms || {}).forEach(([k, v]: any) => {
       if ((v?.on || v?.active || v === true) && k in symCounts) symCounts[k]++;

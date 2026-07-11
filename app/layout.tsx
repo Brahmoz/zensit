@@ -1,5 +1,6 @@
 import './globals.css';
 import { Metadata } from 'next';
+import EmergencyListener from './components/EmergencyListener';
 
 export const metadata: Metadata = {
   title: 'Zensit',
@@ -19,6 +20,7 @@ export default function RootLayout({
       </head>
       <body className="bg-gray-50 text-gray-900 font-sans">
         {children}
+        <EmergencyListener />
       </body>
     </html>
   );
