@@ -143,17 +143,8 @@ export default function Home() {
             const R_C = 90;
             const circ = 2 * Math.PI * R_R;
 
-            // Logo scale matching breath sequence
-            let logoScale = 1.0;
-            if (bp.phase === "inhale") {
-              logoScale = 1.0 + (0.28 * progress);
-            } else if (bp.phase === "hold-in") {
-              logoScale = 1.28;
-            } else if (bp.phase === "exhale") {
-              logoScale = 1.28 - (0.28 * progress);
-            } else {
-              logoScale = 1.0;
-            }
+            // Logo scale is static to keep design clean and calm
+            const logoScale = 1.0;
 
             // circular timeline stroke offset
             const strokeOffset = circ * (1 - progress);

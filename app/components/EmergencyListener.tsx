@@ -375,7 +375,7 @@ export default function EmergencyListener() {
       {!myActiveAlertId && (
         <div style={{
           position: "fixed",
-          top: 15,
+          bottom: 16,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 9000,
