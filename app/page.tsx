@@ -3,15 +3,15 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 export default function Home() {
-  const [flareups, setFlareups]       = useState(8);
-  const [recovery, setRecovery]       = useState(3);
-  const [navSolid, setNavSolid]       = useState(false);
+  const [flareups, setFlareups] = useState(8);
+  const [recovery, setRecovery] = useState(3);
+  const [navSolid, setNavSolid] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const total   = flareups * recovery;
-  const with_z  = Math.max(1, Math.round(total * 0.22));
-  const saved   = total - with_z;
-  const pct     = Math.round((saved / total) * 100);
+  const total = flareups * recovery;
+  const with_z = Math.max(1, Math.round(total * 0.22));
+  const saved = total - with_z;
+  const pct = Math.round((saved / total) * 100);
 
   useEffect(() => {
     const fn = () => setNavSolid(window.scrollY > 40);
@@ -36,7 +36,7 @@ export default function Home() {
       ctx.clearRect(0, 0, c.width, c.height);
       pts.forEach(p => {
         p.x += p.vx; p.y += p.vy;
-        if (p.x < 0 || p.x > c.width)  p.vx *= -1;
+        if (p.x < 0 || p.x > c.width) p.vx *= -1;
         if (p.y < 0 || p.y > c.height) p.vy *= -1;
         ctx.beginPath(); ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(99,102,241,0.5)"; ctx.fill();
@@ -59,9 +59,9 @@ export default function Home() {
   }, []);
 
   const features = [
-    { icon: "🩺", title: "Symptom Logging",   body: "Tap to activate symptoms — itching, redness, mucus, headache, nausea. Includes a real-time sneeze frequency counter." },
+    { icon: "🩺", title: "Symptom Logging", body: "Tap to activate symptoms — itching, redness, mucus, headache, nausea. Includes a real-time sneeze frequency counter." },
     { icon: "🌡️", title: "Climate Telemetry", body: "GPS-powered ambient temperature and humidity, logged automatically with every session for correlation analysis." },
-    { icon: "🤖", title: "MedGemma Export",   body: "One-tap export of your full telemetry history as structured JSON ready for LLM clinical analysis." },
+    { icon: "🤖", title: "MedGemma Export", body: "One-tap export of your full telemetry history as structured JSON ready for LLM clinical analysis." },
   ];
 
   return (
@@ -69,20 +69,28 @@ export default function Home() {
       {/* Particle bg */}
       <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }} />
       <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: "-30%", left: "-15%", width: 700, height: 700, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)" }} className="anim-float" />
-        <div style={{ position: "absolute", bottom: "-25%", right: "-10%", width: 600, height: 600, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)", animationDelay: "3s" }} className="anim-float" />
+        <div style={{
+          position: "absolute", top: "-30%", left: "-15%", width: 700, height: 700, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)"
+        }} className="anim-float" />
+        <div style={{
+          position: "absolute", bottom: "-25%", right: "-10%", width: 600, height: 600, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)", animationDelay: "3s"
+        }} className="anim-float" />
       </div>
 
       {/* NAV */}
-      <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+      <nav style={{
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
         transition: "background 0.3s, border-color 0.3s",
-        ...(navSolid ? { background: "rgba(8,12,20,0.85)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.06)" } : {}) }}>
+        ...(navSolid ? { background: "rgba(8,12,20,0.85)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.06)" } : {})
+      }}>
         <div className="container" style={{ height: 68, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 34, height: 34, background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)",
-              borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            <div style={{
+              width: 34, height: 34, background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)",
+              borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden"
+            }}>
               <img src="/icon-192x192.png" alt="Zensit" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
             <span style={{ fontWeight: 900, fontSize: "1.15rem", letterSpacing: "-0.03em", color: "#fff" }}>
@@ -99,8 +107,10 @@ export default function Home() {
       </nav>
 
       {/* HERO */}
-      <section style={{ position: "relative", zIndex: 1, minHeight: "100svh", display: "flex", alignItems: "center",
-        justifyContent: "center", paddingTop: 100, paddingBottom: 80, textAlign: "center" }}>
+      <section style={{
+        position: "relative", zIndex: 1, minHeight: "100svh", display: "flex", alignItems: "center",
+        justifyContent: "center", paddingTop: 100, paddingBottom: 80, textAlign: "center"
+      }}>
         <div className="container">
           <div className="anim-fadeup" style={{ marginBottom: 24 }}>
             <span className="pill pill-indigo">
@@ -125,8 +135,8 @@ export default function Home() {
           {/* Stats */}
           <div className="anim-fadeup delay-4 stats-grid" style={{ maxWidth: 680, margin: "64px auto 0" }}>
             {[
-              { n: "78%",  l: "Flare-up reduction" },
-              { n: "10s",  l: "Sneeze timer" },
+              { n: "78%", l: "Flare-up reduction" },
+              { n: "10s", l: "Sneeze timer" },
               { n: "24/7", l: "Climate tracking" },
               { n: "100%", l: "MedGemma ready" },
             ].map((s, i) => (
@@ -140,10 +150,14 @@ export default function Home() {
           {/* Scroll cue */}
           <div className="anim-fadeup delay-5" style={{ marginTop: 56, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
             <span className="t-label" style={{ fontSize: "0.6rem" }}>scroll</span>
-            <div style={{ width: 22, height: 36, border: "1px solid var(--border)", borderRadius: 999,
-              display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 6 }}>
-              <div style={{ width: 4, height: 8, background: "#6366f1", borderRadius: 999,
-                animation: "fadeUp 1.5s ease-in-out infinite alternate" }} />
+            <div style={{
+              width: 22, height: 36, border: "1px solid var(--border)", borderRadius: 999,
+              display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 6
+            }}>
+              <div style={{
+                width: 4, height: 8, background: "#6366f1", borderRadius: 999,
+                animation: "fadeUp 1.5s ease-in-out infinite alternate"
+              }} />
             </div>
           </div>
         </div>
@@ -251,7 +265,7 @@ export default function Home() {
             <img src="/icon-192x192.png" alt="Zensit" style={{ width: 18, height: 18, objectFit: "contain" }} />
             Zensit · Personal Allergy Telemetry
           </span>
-          <span className="t-label" style={{ fontSize: "0.65rem" }}>© 2026 · PWA Ready · MedGemma Compatible</span>
+          <span className="t-label" style={{ fontSize: "0.65rem" }}>© 2026 · PWA Ready · A Digib Fascination </span>
         </div>
       </footer>
     </div>

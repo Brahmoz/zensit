@@ -25,12 +25,84 @@ export default function Wizard() {
   const [saving, setSaving] = useState(false);
   const [saved, setSavedState] = useState(false);
 
+  interface UserProfile {
+    id: string;
+    name: string;
+    allergies: string;
+    color: string;
+  }
+
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string>("default");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newProfile, setNewProfile] = useState({ name: "", allergies: "Pollen", color: "#6366f1" });
+
   const [profile, setProfile] = useState({
     name: "Nand",
     date: new Date().toISOString().slice(0, 10),
     time: new Date().toTimeString().slice(0, 5),
     location: "Home",
   });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("zensit_user_profiles");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setProfiles(parsed);
+          if (parsed.length > 0) {
+            // Find active profile
+            const active = parsed.find((p: any) => p.id === activeProfileId) || parsed[0];
+            setActiveProfileId(active.id);
+            setProfile(p => ({ ...p, name: active.name }));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        const seed = [{ id: "default", name: "Nand", allergies: "Pollen", color: "#6366f1" }];
+        localStorage.setItem("zensit_user_profiles", JSON.stringify(seed));
+        setProfiles(seed);
+        setActiveProfileId("default");
+      }
+    }
+  }, []);
+
+  const addProfile = () => {
+    if (!newProfile.name.trim()) return;
+    const name = newProfile.name.trim();
+    if (name.length > 100) {
+      alert("Name is too long");
+      return;
+    }
+    const newP: UserProfile = {
+      id: Math.random().toString(36).slice(2, 9),
+      name,
+      allergies: newProfile.allergies,
+      color: newProfile.color,
+    };
+    const updated = [...profiles, newP];
+    setProfiles(updated);
+    localStorage.setItem("zensit_user_profiles", JSON.stringify(updated));
+    setActiveProfileId(newP.id);
+    setProfile(p => ({ ...p, name: newP.name }));
+    setShowAddForm(false);
+    setNewProfile({ name: "", allergies: "Pollen", color: "#6366f1" });
+  };
+
+  const deleteProfile = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (id === "default") return;
+    const filtered = profiles.filter(p => p.id !== id);
+    setProfiles(filtered);
+    localStorage.setItem("zensit_user_profiles", JSON.stringify(filtered));
+    if (activeProfileId === id) {
+      const fallback = filtered[0] || { id: "default", name: "Nand", allergies: "Pollen", color: "#6366f1" };
+      setActiveProfileId(fallback.id);
+      setProfile(p => ({ ...p, name: fallback.name }));
+    }
+  };
 
   const [symptoms, setSymptoms] = useState<Record<SymptomKey, { on: boolean; note: string }>>(
     Object.fromEntries(SYMPTOMS.map(s => [s.key, { on: false, note: "" }])) as any
@@ -182,13 +254,168 @@ export default function Wizard() {
           {/* ── STEP 0 – Profile ───────────────────────────────────────── */}
           {step === 0 && (
             <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>👤 Patient Profile</h2>
-
-              <div>
-                <label className="t-label" style={{ display: "block", marginBottom: 8 }}>Name</label>
-                <input className="input" value={profile.name} placeholder="Patient name"
-                  onChange={e => setProfile(p => ({ ...p, name: e.target.value }))} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>👤 Patient Profile</h2>
+                <span className="pill pill-indigo">Select or Create</span>
               </div>
+
+              {/* Profiles Selector Grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                {profiles.map(p => {
+                  const initials = p.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                  const active = activeProfileId === p.id;
+                  return (
+                    <div key={p.id} 
+                      onClick={() => {
+                        setActiveProfileId(p.id);
+                        setProfile(prev => ({ ...prev, name: p.name }));
+                      }}
+                      className="card"
+                      style={{ 
+                        padding: "16px", 
+                        cursor: "pointer", 
+                        border: active ? `1.5px solid ${p.color}` : "1px solid var(--border)",
+                        background: active ? "rgba(99, 102, 241, 0.05)" : "var(--surface)",
+                        display: "flex", 
+                        alignItems: "center", 
+                        justifyContent: "space-between",
+                        gap: 12,
+                        position: "relative"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ 
+                          width: 36, 
+                          height: 36, 
+                          borderRadius: "50%", 
+                          background: p.color, 
+                          color: "#fff", 
+                          fontWeight: 800, 
+                          fontSize: "0.85rem", 
+                          display: "flex", 
+                          alignItems: "center", 
+                          justifyContent: "center"
+                        }}>
+                          {initials}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "0.9375rem", color: "#fff" }}>{p.name}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "capitalize" }}>{p.allergies} Triggers</div>
+                        </div>
+                      </div>
+                      
+                      {p.id !== "default" && (
+                        <button
+                          type="button"
+                          onClick={(e) => deleteProfile(p.id, e)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "rgba(239, 68, 68, 0.7)",
+                            cursor: "pointer",
+                            fontSize: "1.05rem",
+                            padding: 4,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center"
+                          }}
+                          title="Delete Profile"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Add Profile Card */}
+                {!showAddForm && (
+                  <div 
+                    onClick={() => setShowAddForm(true)}
+                    className="card"
+                    style={{ 
+                      padding: "16px", 
+                      cursor: "pointer", 
+                      border: "1px dashed var(--border-hi)",
+                      background: "transparent",
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      gap: 8,
+                      minHeight: 70
+                    }}
+                  >
+                    <span style={{ fontSize: "1.2rem", color: "#818cf8" }}>+</span>
+                    <span style={{ fontWeight: 700, fontSize: "0.875rem", color: "#818cf8" }}>Add User Profile</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Add Profile Form */}
+              {showAddForm && (
+                <div className="card-hi" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontWeight: 800, fontSize: "1rem", color: "#fff" }}>👤 Create User Profile</h3>
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "4px 8px" }} onClick={() => setShowAddForm(false)}>✕</button>
+                  </div>
+                  
+                  <div>
+                    <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Full Name</label>
+                    <input className="input" placeholder="e.g. John Doe" value={newProfile.name}
+                      onChange={e => setNewProfile(prev => ({ ...prev, name: e.target.value }))} />
+                  </div>
+                  
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Primary Allergen</label>
+                      <select 
+                        className="input" 
+                        value={newProfile.allergies}
+                        onChange={e => setNewProfile(prev => ({ ...prev, allergies: e.target.value }))}
+                        style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}
+                      >
+                        {["Pollen", "Dust", "Pets", "Food", "Air Quality", "Other"].map(a => (
+                          <option key={a} value={a}>{a}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Theme Accent</label>
+                      <div style={{ display: "flex", gap: 8, height: 44, alignItems: "center" }}>
+                        {[
+                          { val: "#6366f1", label: "Indigo" },
+                          { val: "#ec4899", label: "Rose" },
+                          { val: "#10b981", label: "Emerald" },
+                          { val: "#f59e0b", label: "Amber" },
+                          { val: "#3b82f6", label: "Blue" }
+                        ].map(color => (
+                          <button
+                            key={color.val}
+                            type="button"
+                            onClick={() => setNewProfile(prev => ({ ...prev, color: color.val }))}
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: "50%",
+                              background: color.val,
+                              border: newProfile.color === color.val ? "2px solid #fff" : "none",
+                              cursor: "pointer",
+                              boxShadow: newProfile.color === color.val ? `0 0 10px ${color.val}` : "none",
+                              transition: "transform 0.1s"
+                            }}
+                            title={color.label}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>Cancel</button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={addProfile}>Create Profile</button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>

@@ -11,6 +11,7 @@ export default function Admin() {
   const [logs, setLogs]       = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab]         = useState<"overview" | "feed">("overview");
+  const [selectedPatient, setSelectedPatient] = useState<string>("all");
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("za") === "1") setAuthed(true);
@@ -62,17 +63,22 @@ export default function Admin() {
   // ─── helpers ──────────────────────────────────────────────────────────────
   const parseN = (v: string | undefined) => v ? parseFloat(v.replace(/[^\d.]/g, "")) : null;
 
+  const patients = Array.from(new Set(logs.map(l => l.profile?.name).filter(Boolean))) as string[];
+  const filteredLogs = selectedPatient === "all"
+    ? logs
+    : logs.filter(l => l.profile?.name === selectedPatient);
+
   const avgTemp = () => {
-    const vals = logs.map(l => parseN(l.exposure?.temperature)).filter(Boolean) as number[];
+    const vals = filteredLogs.map(l => parseN(l.exposure?.temperature)).filter(Boolean) as number[];
     return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}°C` : "—";
   };
   const avgHum = () => {
-    const vals = logs.map(l => parseN(l.exposure?.humidity)).filter(Boolean) as number[];
+    const vals = filteredLogs.map(l => parseN(l.exposure?.humidity)).filter(Boolean) as number[];
     return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%` : "—";
   };
 
   const symCounts: Record<string, number> = { itching: 0, headache: 0, redness: 0, mucus: 0, vomiting: 0, sneezing: 0 };
-  logs.forEach(l => {
+  filteredLogs.forEach(l => {
     Object.entries(l.symptoms || {}).forEach(([k, v]: any) => {
       if ((v?.on || v?.active || v === true) && k in symCounts) symCounts[k]++;
     });
@@ -81,8 +87,8 @@ export default function Admin() {
   const maxSym = Math.max(...Object.values(symCounts), 1);
 
   const latestRisk = (() => {
-    if (!logs[0]) return { score: 0, label: "No data", color: "#64748b" };
-    const l = logs[0];
+    if (!filteredLogs[0]) return { score: 0, label: "No data", color: "#64748b" };
+    const l = filteredLogs[0];
     const t = parseN(l.exposure?.temperature) ?? 25;
     const h = parseN(l.exposure?.humidity) ?? 50;
     let s = 30;
@@ -148,9 +154,35 @@ export default function Admin() {
               <img src="/icon-192x192.png" alt="Zensit" style={{ width: 22, height: 22, objectFit: "contain" }} />
               Zensit <span style={{ color: "#818cf8" }}>Console</span>
             </a>
-            <div className="t-label" style={{ marginTop: 2, fontSize: "0.65rem" }}>{logs.length} telemetry logs</div>
+            <div className="t-label" style={{ marginTop: 2, fontSize: "0.65rem" }}>
+              {selectedPatient === "all" ? `${logs.length} total logs` : `${filteredLogs.length} of ${logs.length} logs for ${selectedPatient}`}
+            </div>
           </div>
-          <button onClick={exportJSON} className="btn btn-primary btn-sm">⬇ Export JSON</button>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {patients.length > 0 && (
+              <select
+                value={selectedPatient}
+                onChange={e => setSelectedPatient(e.target.value)}
+                className="input"
+                style={{ 
+                  padding: "6px 12px", 
+                  fontSize: "0.8125rem", 
+                  width: "auto", 
+                  background: "var(--bg)", 
+                  color: "var(--text)", 
+                  border: "1px solid var(--border)",
+                  borderRadius: "10px"
+                }}
+              >
+                <option value="all">👥 All Patients</option>
+                {patients.map(p => (
+                  <option key={p} value={p}>👤 {p}</option>
+                ))}
+              </select>
+            )}
+            <button onClick={exportJSON} className="btn btn-primary btn-sm">⬇ Export JSON</button>
+          </div>
         </div>
       </div>
 
@@ -234,7 +266,7 @@ export default function Admin() {
                   </div>
                 </div>
                 {(() => {
-                  const sorted = [...logs].filter(l => l.timestamp)
+                  const sorted = [...filteredLogs].filter(l => l.timestamp)
                     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
                   if (sorted.length < 2) return (
                     <div style={{ height: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -306,7 +338,7 @@ export default function Admin() {
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-              {logs.map(l => {
+              {filteredLogs.map(l => {
                 const activeSyms = Object.entries(l.symptoms || {}).filter(([, v]: any) => v?.on || v?.active || v === true);
                 const sneezes   = l.sneezing?.count || 0;
                 const loc       = l.profile?.location || l.profile?.locationTag || "—";
