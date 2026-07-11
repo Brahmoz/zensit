@@ -85,12 +85,16 @@ export default function EmergencyListener() {
   useEffect(() => {
     const loadProfile = () => {
       const stored = localStorage.getItem("zensit_user_profiles");
+      const activeId = localStorage.getItem("zensit_active_profile_id");
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
           if (parsed && parsed.length > 0) {
-            // Check if there is active selection, otherwise first profile
-            setActiveProfile(parsed[0]);
+            // Respect the user's selected active profile, fallback to first
+            const active = activeId
+              ? (parsed.find((p: any) => p.id === activeId) || parsed[0])
+              : parsed[0];
+            setActiveProfile(active);
           }
         } catch {}
       }
@@ -134,20 +138,16 @@ export default function EmergencyListener() {
         let isNearby = false;
         if (localCoords && alert.gps) {
           const dist = getDistance(localCoords.lat, localCoords.lon, alert.gps.lat, alert.gps.lon);
-          if (dist <= 5) {
-            isNearby = true;
-          }
+          if (dist <= 5) isNearby = true;
         }
         
         return sameProfile || isNearby;
       });
 
       setActiveAlerts(matches);
-      if (matches.length > 0) {
-        startSiren();
-      } else {
-        stopSiren();
-      }
+      // Note: siren is NOT started here — AudioContext requires a user gesture.
+      // The alert overlay itself has a "Unmute Siren" button to allow playback.
+      if (matches.length === 0) stopSiren();
     });
 
     return () => {
@@ -333,6 +333,15 @@ export default function EmergencyListener() {
                 style={{ background: "rgba(255,255,255,0.2)", color: "#fff", padding: "14px 28px", border: "1px solid #fff" }}
               >
                 ✓ Resolve Alert (Helped)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => startSiren()}
+                className="btn"
+                style={{ background: "rgba(255,100,100,0.25)", color: "#fff", padding: "14px 28px", border: "1px solid rgba(255,100,100,0.5)" }}
+              >
+                🔊 Activate Siren
               </button>
 
               <button

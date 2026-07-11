@@ -28,6 +28,26 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── emergency_alerts collection ───────────────────────────────────────────
+    // Used by EmergencyListener for real-time SOS broadcasts.
+    match /emergency_alerts/{alertId} {
+      // Anyone using the app can create an SOS alert
+      allow create: if
+        request.resource.data.keys().hasAll(['profileName', 'gps', 'timestamp', 'resolved']) &&
+        request.resource.data.profileName is string &&
+        request.resource.data.resolved == false;
+
+      // Anyone can read active alerts (to receive notifications)
+      allow read: if true;
+
+      // Allow updating only the 'resolved' field (to dismiss alerts)
+      allow update: if
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved']) &&
+        request.resource.data.resolved == true;
+
+      allow delete: if false;
+    }
+
     // ── Deny access to all other collections ─────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

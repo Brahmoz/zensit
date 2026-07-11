@@ -5,7 +5,7 @@ import EmergencyListener from './components/EmergencyListener';
 export const metadata: Metadata = {
   title: 'Zensit',
   description: 'Allergy Monitoring Suite',
-  manifest: '/manifest.ts',
+  manifest: '/manifest.webmanifest',
 };
 
 export default function RootLayout({

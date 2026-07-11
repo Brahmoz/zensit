@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 
-type SymptomKey = "vomiting" | "headache" | "itching" | "redness" | "mucus";
+type SymptomKey = "vomiting" | "headache" | "itching" | "redness" | "mucus" | "bleeding";
 const SYMPTOMS: { key: SymptomKey; icon: string; label: string }[] = [
-  { key: "itching", icon: "😣", label: "Skin Itching" },
-  { key: "redness", icon: "🔴", label: "Skin Redness" },
+  { key: "itching",  icon: "😣", label: "Skin Itching" },
+  { key: "redness",  icon: "🔴", label: "Skin Redness" },
   { key: "headache", icon: "🤕", label: "Headache" },
-  { key: "mucus", icon: "💧", label: "Excess Mucus" },
+  { key: "mucus",    icon: "💧", label: "Excess Mucus" },
   { key: "vomiting", icon: "🤢", label: "Nausea / Vomiting" },
+  { key: "bleeding", icon: "🩸", label: "Bleeding" },
 ];
 const LOCS = ["Home", "Hospital", "School", "Work", "Travel", "Other"];
 
@@ -87,6 +88,7 @@ export default function Wizard() {
     const updated = [...profiles, newP];
     setProfiles(updated);
     localStorage.setItem("zensit_user_profiles", JSON.stringify(updated));
+    localStorage.setItem("zensit_active_profile_id", newP.id);
     setActiveProfileId(newP.id);
     setProfile(p => ({ ...p, name: newP.name }));
     setShowAddForm(false);
@@ -100,7 +102,8 @@ export default function Wizard() {
     setProfiles(filtered);
     localStorage.setItem("zensit_user_profiles", JSON.stringify(filtered));
     if (activeProfileId === id) {
-      const fallback = filtered[0] || { id: "default", name: "Nand", allergies: "Pollen", color: "#6366f1" };
+      const fallback = filtered[0] || { id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" };
+      localStorage.setItem("zensit_active_profile_id", fallback.id);
       setActiveProfileId(fallback.id);
       setProfile(p => ({ ...p, name: fallback.name }));
     }
@@ -284,6 +287,7 @@ export default function Wizard() {
                     <div key={p.id}
                       onClick={() => {
                         setActiveProfileId(p.id);
+                        localStorage.setItem("zensit_active_profile_id", p.id);
                         setProfile(prev => ({ ...prev, name: p.name }));
                       }}
                       className="card"
