@@ -237,7 +237,6 @@ export default function Wizard() {
   const [meds, setMeds] = useState("");
 
   useEffect(() => {
-    if (step !== 2) return;
     (async () => {
       try {
         let lat = "20.5937", lon = "78.9629";
@@ -266,7 +265,7 @@ export default function Wizard() {
         setWx({ temp: "25°C", hum: "55%", score: 60, label: "Estimated", color: "#f59e0b" });
       }
     })();
-  }, [step]);
+  }, []);
 
   const toggle = (k: SymptomKey) =>
     setSymptoms(p => ({ ...p, [k]: { ...p[k], on: !p[k].on } }));
@@ -413,6 +412,34 @@ export default function Wizard() {
                 <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>👤 Patient Profile</h2>
                 <span className="pill pill-indigo">Select or Create</span>
               </div>
+
+              {/* Positive Outlook Card */}
+              {wx.temp !== "—" && (
+                <div className="card-hi" style={{
+                  padding: "16px 20px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  borderLeft: `4px solid ${wx.color}`,
+                  background: "rgba(14, 20, 32, 0.85)"
+                }}>
+                  <div style={{ fontSize: "2rem" }}>
+                    {wx.score >= 75 ? "🌟" : wx.score >= 50 ? "☀️" : "💪"}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "#fff" }}>
+                      Daily Climate Outlook: <span style={{ color: wx.color }}>{wx.label} ({wx.temp}, {wx.hum})</span>
+                    </div>
+                    <p style={{ fontSize: "0.8125rem", color: "var(--muted)", lineHeight: 1.45, margin: 0 }}>
+                      {wx.score >= 75
+                        ? "The climate comfort today is excellent! It's a great day for outdoor activities, and allergen risks are very low."
+                        : wx.score >= 50
+                        ? "Weather conditions are moderate today. Take standard precautions, but enjoy a good day!"
+                        : "Even though allergen risks are elevated today, you've got this! Stay hydrated, keep your medications handy, and take it easy."}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Profiles Selector Grid */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
