@@ -146,6 +146,8 @@ export default function EmergencyListener() {
       const val = activeProfile.reminderInterval;
       if (val === "1m") {
         intervalMs = 60 * 1000; // 1 minute for testing
+      } else if (val === "1h") {
+        intervalMs = 60 * 60 * 1000; // 1 hour
       } else if (val === "4h") {
         intervalMs = 4 * 60 * 60 * 1000;
       } else if (val === "8h") {

@@ -5,16 +5,6 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "timestamp",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "health_logs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
           "fieldPath": "profile.locationTag",
           "order": "ASCENDING"
         },

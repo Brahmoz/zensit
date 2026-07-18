@@ -53,6 +53,7 @@ export default function Admin() {
       sneezes: l.sneezing?.count || 0,
       food: l.exposure?.foodIntake || "",
       meds: l.exposure?.medicines || "",
+      wellness: l.wellness || {},
     }));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
@@ -342,6 +343,25 @@ export default function Admin() {
                 const activeSyms = Object.entries(l.symptoms || {}).filter(([, v]: any) => v?.on || v?.active || v === true);
                 const sneezes   = l.sneezing?.count || 0;
                 const loc       = l.profile?.location || l.profile?.locationTag || "—";
+                const wellness  = l.wellness || {};
+                const emotions: string[]  = wellness.emotions || [];
+                const stomach = wellness.stomach?.movement || "";
+                const urineColor = wellness.urine?.color || "";
+                const urineThick = wellness.urine?.thickness || "";
+                const bloating   = wellness.bloating?.active || false;
+                const bloatSev   = wellness.bloating?.severity;
+                const sleepH     = wellness.sleep?.hours;
+                const sleepQ     = wellness.sleep?.quality || "";
+                const stress     = wellness.stress;
+                const water      = wellness.water;
+                const allergens: string[] = wellness.allergens || [];
+
+                const stomachColorMap: Record<string, string> = { constipation: "#92400e", normal: "#16a34a", loose: "#0284c7" };
+                const stomachBgMap:    Record<string, string> = { constipation: "rgba(146,64,14,0.15)", normal: "rgba(22,163,74,0.12)", loose: "rgba(2,132,199,0.12)" };
+                const sleepColorMap:   Record<string, string> = { great: "#22c55e", good: "#6366f1", fair: "#f59e0b", poor: "#ef4444", none: "#9f1239" };
+                const emotionColorMap: Record<string, string> = { happy: "#22c55e", calm: "#6366f1", anxious: "#f59e0b", irritated: "#f97316", fatigued: "#60a5fa", sad: "#818cf8", overwhelmed: "#ef4444", hopeful: "#34d399" };
+                const emotionIconMap:  Record<string, string> = { happy: "😊", calm: "😌", anxious: "😰", irritated: "😤", fatigued: "😴", sad: "😢", overwhelmed: "🤯", hopeful: "🌟" };
+
                 return (
                   <div key={l.id} className="card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
                     {/* header */}
@@ -364,6 +384,53 @@ export default function Admin() {
                       )}
                     </div>
 
+                    {/* Emotions */}
+                    {emotions.length > 0 && (
+                      <div>
+                        <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 5 }}>💭 EMOTIONS</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {emotions.map((em: string) => (
+                            <span key={em} style={{
+                              fontSize: "0.7rem", padding: "3px 8px", borderRadius: 8, fontWeight: 700,
+                              background: `${emotionColorMap[em] || "#6366f1"}20`,
+                              border: `1px solid ${emotionColorMap[em] || "#6366f1"}50`,
+                              color: emotionColorMap[em] || "#818cf8"
+                            }}>
+                              {emotionIconMap[em] || ""} {em.charAt(0).toUpperCase() + em.slice(1)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Allergens Exposure list */}
+                    {allergens.length > 0 && (
+                      <div>
+                        <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 5 }}>🐾 ALLERGEN EXPOSURE</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {allergens.map((alg: string) => {
+                            const algMap: Record<string, { icon: string; label: string }> = {
+                              pollen: { icon: "🌳", label: "Pollen" },
+                              dust: { icon: "🧹", label: "Dust" },
+                              pets: { icon: "🐱", label: "Pets" },
+                              mold: { icon: "🍄", label: "Mold" },
+                              perfume: { icon: "🧴", label: "Perfume" },
+                              smoke: { icon: "🚬", label: "Smoke" },
+                            };
+                            const info = algMap[alg] || { icon: "🐾", label: alg };
+                            return (
+                              <span key={alg} style={{
+                                fontSize: "0.7rem", padding: "3px 8px", borderRadius: 8, fontWeight: 700,
+                                background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)", color: "#a78bfa"
+                              }}>
+                                {info.icon} {info.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* climate row */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       {[
@@ -377,6 +444,84 @@ export default function Admin() {
                         </div>
                       ))}
                     </div>
+
+                    {/* Wellness row: stomach + sleep + stress + water */}
+                    {(stomach || sleepH !== undefined || sleepH !== null || stress !== undefined || water !== undefined) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                        {stomach && (
+                          <div style={{
+                            background: stomachBgMap[stomach] || "var(--surface-2)",
+                            border: `1px solid ${stomachColorMap[stomach] || "var(--border)"}50`,
+                            borderRadius: 10, padding: "10px", textAlign: "center"
+                          }}>
+                            <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 4 }}>🫁 STOMACH</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: stomachColorMap[stomach] || "var(--text)", textTransform: "capitalize" }}>
+                              {stomach}
+                            </div>
+                          </div>
+                        )}
+                        {sleepH !== null && sleepH !== undefined && (
+                          <div style={{
+                            background: sleepColorMap[sleepQ] ? `${sleepColorMap[sleepQ]}15` : "var(--surface-2)",
+                            border: `1px solid ${sleepColorMap[sleepQ] || "var(--border)"}40`,
+                            borderRadius: 10, padding: "10px", textAlign: "center"
+                          }}>
+                            <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 4 }}>🌙 SLEEP</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: sleepColorMap[sleepQ] || "#818cf8" }}>
+                              {sleepH}h{sleepQ && ` · ${sleepQ.charAt(0).toUpperCase() + sleepQ.slice(1)}`}
+                            </div>
+                          </div>
+                        )}
+                        {stress !== undefined && stress !== null && (
+                          <div style={{
+                            background: stress > 7 ? "rgba(239,68,68,0.12)" : stress > 4 ? "rgba(245,158,11,0.12)" : "rgba(34,197,94,0.12)",
+                            border: `1px solid ${stress > 7 ? "#ef4444" : stress > 4 ? "#f59e0b" : "#22c55e"}40`,
+                            borderRadius: 10, padding: "10px", textAlign: "center"
+                          }}>
+                            <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 4 }}>🧠 STRESS</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: stress > 7 ? "#ef4444" : stress > 4 ? "#fb923c" : "#22c55e" }}>
+                              {stress}/10
+                            </div>
+                          </div>
+                        )}
+                        {water !== undefined && water !== null && (
+                          <div style={{
+                            background: "rgba(2,132,199,0.12)",
+                            border: "1px solid rgba(2,132,199,0.4)",
+                            borderRadius: 10, padding: "10px", textAlign: "center"
+                          }}>
+                            <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 4 }}>💧 WATER</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "#38bdf8" }}>
+                              {water} gls
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Urine & bloating chips */}
+                    {(urineColor || urineThick || bloating) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                        {urineColor && (
+                          <span style={{ fontSize: "0.7rem", padding: "3px 8px", borderRadius: 8, fontWeight: 700,
+                            background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>
+                            💛 {urineColor.charAt(0).toUpperCase() + urineColor.slice(1)}
+                          </span>
+                        )}
+                        {urineThick && (
+                          <span style={{ fontSize: "0.7rem", padding: "3px 8px", borderRadius: 8, fontWeight: 700,
+                            background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}>
+                            💧 {urineThick.charAt(0).toUpperCase() + urineThick.slice(1)}
+                          </span>
+                        )}
+                        {bloating && (
+                          <span style={{ fontSize: "0.7rem", padding: "3px 8px", borderRadius: 8, fontWeight: 700,
+                            background: "rgba(249,115,22,0.1)", border: "1px solid rgba(249,115,22,0.3)", color: "#fb923c" }}>
+                            🫃 Bloating{bloatSev ? ` · Sev ${bloatSev}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* sneezes */}
                     {sneezes > 0 && (

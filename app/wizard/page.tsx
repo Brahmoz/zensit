@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 
-type SymptomKey = "vomiting" | "headache" | "itching" | "redness" | "mucus" | "bleeding";
+type SymptomKey = "vomiting" | "headache" | "itching" | "redness" | "mucus" | "bleeding" | "eye_itching" | "breathing" | "coughing";
 const SYMPTOMS: { key: SymptomKey; icon: string; label: string }[] = [
   { key: "itching",  icon: "😣", label: "Skin Itching" },
   { key: "redness",  icon: "🔴", label: "Skin Redness" },
@@ -12,8 +12,48 @@ const SYMPTOMS: { key: SymptomKey; icon: string; label: string }[] = [
   { key: "mucus",    icon: "💧", label: "Excess Mucus" },
   { key: "vomiting", icon: "🤢", label: "Nausea / Vomiting" },
   { key: "bleeding", icon: "🩸", label: "Bleeding" },
+  { key: "eye_itching", icon: "👁️", label: "Eye Itching/Watering" },
+  { key: "breathing", icon: "😮‍💨", label: "Breathing Difficulty" },
+  { key: "coughing", icon: "😷", label: "Dry Coughing" },
 ];
 const LOCS = ["Home", "Hospital", "School", "Work", "Travel", "Other"];
+
+const ALLERGENS = [
+  { key: "pollen", icon: "🌳", label: "Pollen" },
+  { key: "dust",   icon: "🧹", label: "Dust" },
+  { key: "pets",   icon: "🐱", label: "Pets / Dander" },
+  { key: "mold",   icon: "🍄", label: "Mold / Dampness" },
+  { key: "perfume",icon: "🧴", label: "Perfumes / Chemicals" },
+  { key: "smoke",  icon: "🚬", label: "Smoke / Smog" },
+];
+
+const EMOTIONS: { key: string; icon: string; label: string; color: string }[] = [
+  { key: "happy",       icon: "😊", label: "Happy",       color: "#22c55e" },
+  { key: "calm",        icon: "😌", label: "Calm",        color: "#6366f1" },
+  { key: "anxious",     icon: "😰", label: "Anxious",     color: "#f59e0b" },
+  { key: "irritated",   icon: "😤", label: "Irritated",   color: "#f97316" },
+  { key: "fatigued",    icon: "😴", label: "Fatigued",    color: "#60a5fa" },
+  { key: "sad",         icon: "😢", label: "Sad",         color: "#818cf8" },
+  { key: "overwhelmed", icon: "🤯", label: "Overwhelmed", color: "#ef4444" },
+  { key: "hopeful",     icon: "🌟", label: "Hopeful",     color: "#34d399" },
+];
+
+const URINE_COLORS: { key: string; label: string; color: string; hex: string }[] = [
+  { key: "clear",       label: "Clear",        color: "#e0f2fe", hex: "rgba(224,242,254,0.7)" },
+  { key: "light",       label: "Light Yellow", color: "#fef9c3", hex: "rgba(254,249,195,0.7)" },
+  { key: "yellow",      label: "Yellow",       color: "#fde047", hex: "rgba(253,224,71,0.7)" },
+  { key: "dark",        label: "Dark Yellow",  color: "#ca8a04", hex: "rgba(202,138,4,0.7)" },
+  { key: "orange",      label: "Orange",       color: "#ea580c", hex: "rgba(234,88,12,0.7)" },
+  { key: "brown",       label: "Brown",        color: "#78350f", hex: "rgba(120,53,15,0.7)" },
+];
+
+const SLEEP_QUALITY: { key: string; icon: string; label: string; color: string }[] = [
+  { key: "great",  icon: "✨", label: "Great",  color: "#22c55e" },
+  { key: "good",   icon: "😊", label: "Good",   color: "#6366f1" },
+  { key: "fair",   icon: "😐", label: "Fair",   color: "#f59e0b" },
+  { key: "poor",   icon: "😞", label: "Poor",   color: "#ef4444" },
+  { key: "none",   icon: "💀", label: "No Sleep",color: "#9f1239" },
+];
 
 const STEPS = [
   { label: "Profile", icon: "👤" },
@@ -43,6 +83,12 @@ export default function Wizard() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>("default");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({
+    name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌",
+    bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "",
+    reminderInterval: "none"
+  });
   const [newProfile, setNewProfile] = useState({
     name: "", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌",
     bloodGroup: "O+", weight: "", gender: "Prefer not to say", age: "",
@@ -124,11 +170,67 @@ export default function Wizard() {
     }
   };
 
+  const startEdit = (p: UserProfile, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAddForm(false);
+    setEditingProfileId(p.id);
+    setEditDraft({
+      name: p.name,
+      allergies: p.allergies,
+      color: p.color,
+      feeling: p.feeling,
+      bloodGroup: p.bloodGroup || "O+",
+      weight: p.weight || "",
+      gender: p.gender || "Prefer not to say",
+      age: p.age || "",
+      reminderInterval: p.reminderInterval || "none",
+    });
+  };
+
+  const saveEdit = () => {
+    if (!editDraft.name.trim() || !editingProfileId) return;
+    const name = editDraft.name.trim();
+    if (name.length > 100) { alert("Name is too long"); return; }
+    const updated = profiles.map(p =>
+      p.id === editingProfileId
+        ? { ...p, ...editDraft, name }
+        : p
+    );
+    setProfiles(updated);
+    localStorage.setItem("zensit_user_profiles", JSON.stringify(updated));
+    // Sync the log profile name if this is the active profile
+    if (activeProfileId === editingProfileId) {
+      setProfile(prev => ({ ...prev, name }));
+    }
+    setEditingProfileId(null);
+  };
+
   const [symptoms, setSymptoms] = useState<Record<SymptomKey, { on: boolean; note: string }>>(
     Object.fromEntries(SYMPTOMS.map(s => [s.key, { on: false, note: "" }])) as any
   );
   const [sneezes, setSneezes] = useState(0);
   const [sneezeNote, setSneezeNote] = useState("");
+
+  // ── Wellness States ──────────────────────────────────────────────────────
+  const [emotionKeys, setEmotionKeys] = useState<string[]>([]);
+
+  const [stomachMovement, setStomachMovement] = useState<"constipation" | "normal" | "loose" | "">("");
+  const [stomachNote, setStomachNote] = useState("");
+
+  const [urineColor, setUrineColor] = useState("");
+  const [urineThickness, setUrineThickness] = useState<"thin" | "normal" | "thick" | "">("");
+  const [urineNote, setUrineNote] = useState("");
+
+  const [bloating, setBloating] = useState(false);
+  const [bloatingSeverity, setBloatingSeverity] = useState<1 | 2 | 3 | 4 | 5>(3);
+
+  const [sleepHours, setSleepHours] = useState("");
+  const [sleepQuality, setSleepQuality] = useState("");
+
+  const [stressLevel, setStressLevel] = useState<number>(3); // 1-10 slider
+  const [waterIntake, setWaterIntake] = useState<number>(4); // glasses of water
+  const [allergenKeys, setAllergenKeys] = useState<string[]>([]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const [wx, setWx] = useState({ temp: "—", hum: "—", score: 0, label: "Fetching…", color: "#6366f1" });
   const [food, setFood] = useState("");
@@ -183,6 +285,16 @@ export default function Wizard() {
         symptoms,
         sneezing: { count: sneezes, note: sneezeNote },
         exposure: { temperature: wx.temp, humidity: wx.hum, foodIntake: food, medicines: meds },
+        wellness: {
+          emotions: emotionKeys,
+          stomach: { movement: stomachMovement, note: stomachNote },
+          urine: { color: urineColor, thickness: urineThickness, note: urineNote },
+          bloating: { active: bloating, severity: bloating ? bloatingSeverity : null },
+          sleep: { hours: sleepHours ? parseFloat(sleepHours) : null, quality: sleepQuality },
+          stress: stressLevel,
+          water: waterIntake,
+          allergens: allergenKeys,
+        },
         timestamp: new Date().toISOString(),
       });
       if (typeof window !== "undefined") {
@@ -201,6 +313,12 @@ export default function Wizard() {
     setSavedState(false); setStep(0);
     setSymptoms(Object.fromEntries(SYMPTOMS.map(s => [s.key, { on: false, note: "" }])) as any);
     setSneezes(0); setSneezeNote(""); setFood(""); setMeds("");
+    setEmotionKeys([]);
+    setStomachMovement(""); setStomachNote("");
+    setUrineColor(""); setUrineThickness(""); setUrineNote("");
+    setBloating(false); setBloatingSeverity(3);
+    setSleepHours(""); setSleepQuality("");
+    setStressLevel(3); setWaterIntake(4); setAllergenKeys([]);
   };
 
   // ─── Success screen ───────────────────────────────────────────────────────
@@ -366,33 +484,44 @@ export default function Wizard() {
                             )}
                             {p.reminderInterval && p.reminderInterval !== "none" && (
                               <span style={{ fontSize: "0.6rem", background: "rgba(168,85,247,0.12)", color: "#c084fc", padding: "1.5px 6px", borderRadius: 12, fontWeight: 600 }}>
-                                🔔 {p.reminderInterval === "1m" ? "1 Min" : p.reminderInterval === "4h" ? "4 Hours" : p.reminderInterval === "8h" ? "8 Hours" : "24 Hours"}
+                                🔔 {p.reminderInterval === "1m" ? "1 Min" : p.reminderInterval === "1h" ? "1 Hour" : p.reminderInterval === "4h" ? "4 Hours" : p.reminderInterval === "8h" ? "8 Hours" : "24 Hours"}
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {p.id !== "default" && (
+                      {/* Edit + Delete buttons */}
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         <button
                           type="button"
-                          onClick={(e) => deleteProfile(p.id, e)}
+                          onClick={(e) => startEdit(p, e)}
                           style={{
-                            background: "none",
-                            border: "none",
-                            color: "rgba(239, 68, 68, 0.7)",
-                            cursor: "pointer",
-                            fontSize: "1.05rem",
-                            padding: 4,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center"
+                            background: "none", border: "none",
+                            color: editingProfileId === p.id ? "#818cf8" : "rgba(129,140,248,0.6)",
+                            cursor: "pointer", fontSize: "1rem", padding: 4,
+                            display: "flex", alignItems: "center", justifyContent: "center"
                           }}
-                          title="Delete Profile"
+                          title="Edit Profile"
                         >
-                          🗑️
+                          ✏️
                         </button>
-                      )}
+                        {p.id !== "default" && (
+                          <button
+                            type="button"
+                            onClick={(e) => deleteProfile(p.id, e)}
+                            style={{
+                              background: "none", border: "none",
+                              color: "rgba(239, 68, 68, 0.7)",
+                              cursor: "pointer", fontSize: "1rem", padding: 4,
+                              display: "flex", alignItems: "center", justifyContent: "center"
+                            }}
+                            title="Delete Profile"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -419,6 +548,148 @@ export default function Wizard() {
                   </div>
                 )}
               </div>
+
+              {/* Edit Profile Form */}
+              {editingProfileId && (() => {
+                const editTarget = profiles.find(p => p.id === editingProfileId);
+                return (
+                  <div className="card-hi" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16, border: "1.5px solid rgba(129,140,248,0.4)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <h3 style={{ fontWeight: 800, fontSize: "1rem", color: "#fff" }}>✏️ Edit Profile — {editTarget?.name}</h3>
+                      <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "4px 8px" }} onClick={() => setEditingProfileId(null)}>✕</button>
+                    </div>
+
+                    <div>
+                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Full Name</label>
+                      <input className="input" placeholder="e.g. Brahman..." value={editDraft.name}
+                        onChange={e => setEditDraft(prev => ({ ...prev, name: e.target.value }))} />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Primary Allergen</label>
+                        <select className="input" value={editDraft.allergies}
+                          onChange={e => setEditDraft(prev => ({ ...prev, allergies: e.target.value }))}
+                          style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}>
+                          {["Pollen", "Dust", "Pets", "Food", "Air Quality", "Other"].map(a => (
+                            <option key={a} value={a}>{a}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="t-label" style={{ display: "block", marginBottom: 6 }}>General Feeling</label>
+                        <select className="input" value={editDraft.feeling}
+                          onChange={e => setEditDraft(prev => ({ ...prev, feeling: e.target.value }))}
+                          style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}>
+                          {["Calm 😌", "Energetic ⚡", "Fatigued 😴", "Anxious 😰", "Irritated 🤧"].map(f => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Health Vitals */}
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                      <div className="t-label" style={{ marginBottom: 10, color: "var(--muted)", fontSize: "0.7rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        🩺 Health Vitals (optional)
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div>
+                          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Gender</label>
+                          <select className="input" value={editDraft.gender}
+                            onChange={e => setEditDraft(prev => ({ ...prev, gender: e.target.value }))}
+                            style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}>
+                            {["Male", "Female", "Non-binary", "Prefer not to say"].map(g => (
+                              <option key={g} value={g}>{g}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Blood Group</label>
+                          <select className="input" value={editDraft.bloodGroup}
+                            onChange={e => setEditDraft(prev => ({ ...prev, bloodGroup: e.target.value }))}
+                            style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}>
+                            {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "Unknown"].map(g => (
+                              <option key={g} value={g}>{g}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Age (years)</label>
+                          <input className="input" type="number" min="1" max="120" placeholder="e.g. 28"
+                            value={editDraft.age}
+                            onChange={e => setEditDraft(prev => ({ ...prev, age: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Weight (kg)</label>
+                          <input className="input" type="number" min="1" max="300" placeholder="e.g. 65"
+                            value={editDraft.weight}
+                            onChange={e => setEditDraft(prev => ({ ...prev, weight: e.target.value }))} />
+                        </div>
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label className="t-label" style={{ display: "block", marginBottom: 5 }}>Logging Reminders</label>
+                          <select className="input" value={editDraft.reminderInterval}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setEditDraft(prev => ({ ...prev, reminderInterval: val }));
+                              if (val !== "none" && typeof window !== "undefined" && "Notification" in window) {
+                                Notification.requestPermission().then(permission => {
+                                  if (permission === "granted") {
+                                    new Notification("Zensit Reminders", {
+                                      body: "Reminders updated! You will be notified to log data.",
+                                      icon: "/icon-192x192.png"
+                                    });
+                                  }
+                                });
+                              }
+                            }}
+                            style={{ background: "rgba(8,12,20,0.9)", color: "var(--text)" }}>
+                            <option value="none">No reminders (Off)</option>
+                            <option value="1m">Every Minute (for Testing 🧪)</option>
+                            <option value="1h">Every Hour 🔔</option>
+                            <option value="4h">Every 4 Hours 🕐</option>
+                            <option value="8h">Every 8 Hours 🕦</option>
+                            <option value="24h">Daily (Every 24 Hours) 📅</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Theme Accent */}
+                    <div>
+                      <label className="t-label" style={{ display: "block", marginBottom: 6 }}>Theme Accent</label>
+                      <div style={{ display: "flex", gap: 8, height: 44, alignItems: "center" }}>
+                        {[
+                          { val: "#6366f1", label: "Indigo" },
+                          { val: "#ec4899", label: "Rose" },
+                          { val: "#10b981", label: "Emerald" },
+                          { val: "#f59e0b", label: "Amber" },
+                          { val: "#3b82f6", label: "Blue" }
+                        ].map(color => (
+                          <button
+                            key={color.val}
+                            type="button"
+                            onClick={() => setEditDraft(prev => ({ ...prev, color: color.val }))}
+                            style={{
+                              width: 24, height: 24, borderRadius: "50%", background: color.val,
+                              border: editDraft.color === color.val ? "2px solid #fff" : "none",
+                              cursor: "pointer",
+                              boxShadow: editDraft.color === color.val ? `0 0 10px ${color.val}` : "none",
+                              transition: "transform 0.1s"
+                            }}
+                            title={color.label}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingProfileId(null)}>Cancel</button>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={saveEdit}>✓ Save Changes</button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Add Profile Form */}
               {showAddForm && (
@@ -534,6 +805,7 @@ export default function Wizard() {
                         >
                           <option value="none">No reminders (Off)</option>
                           <option value="1m">Every Minute (for Testing 🧪)</option>
+                          <option value="1h">Every Hour 🔔</option>
                           <option value="4h">Every 4 Hours 🕐</option>
                           <option value="8h">Every 8 Hours 🕦</option>
                           <option value="24h">Daily (Every 24 Hours) 📅</option>
@@ -606,10 +878,45 @@ export default function Wizard() {
 
           {/* ── STEP 1 – Symptoms ──────────────────────────────────────── */}
           {step === 1 && (
-            <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>🩺 Symptom Log</h2>
+            <div className="anim-fadeup" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff" }}>🩺 Symptom & Wellness Log</h2>
 
-              {/* Sneeze counter */}
+              {/* ── Emotional State ─────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>💭 Emotional State</div>
+                  <div className="t-label" style={{ fontSize: "0.75rem" }}>Select all that apply right now</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                  {EMOTIONS.map(em => {
+                    const active = emotionKeys.includes(em.key);
+                    return (
+                      <button
+                        key={em.key}
+                        type="button"
+                        onClick={() => setEmotionKeys(prev =>
+                          prev.includes(em.key) ? prev.filter(k => k !== em.key) : [...prev, em.key]
+                        )}
+                        style={{
+                          display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+                          padding: "10px 4px", borderRadius: 12, cursor: "pointer",
+                          background: active ? `${em.color}22` : "var(--surface-2)",
+                          border: active ? `1.5px solid ${em.color}` : "1px solid var(--border)",
+                          boxShadow: active ? `0 0 12px ${em.color}30` : "none",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <span style={{ fontSize: "1.4rem" }}>{em.icon}</span>
+                        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: active ? em.color : "var(--muted)", whiteSpace: "nowrap" }}>
+                          {em.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Sneeze counter ──────────────────────────────────── */}
               <div className="card" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <div>
@@ -642,35 +949,344 @@ export default function Wizard() {
                 )}
               </div>
 
-              {/* Symptoms */}
-              <label className="t-label">Active symptoms</label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {SYMPTOMS.map(s => {
-                  const on = symptoms[s.key].on;
-                  return (
-                    <div key={s.key}>
-                      <div className={`sym-row${on ? " active" : ""}`} onClick={() => toggle(s.key)}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <span style={{ fontSize: "1.25rem" }}>{s.icon}</span>
-                          <span style={{ fontWeight: 600, color: on ? "#fff" : "var(--text)", fontSize: "0.9375rem" }}>{s.label}</span>
+              {/* ── Active Allergy Symptoms ──────────────────────────── */}
+              <div>
+                <label className="t-label" style={{ marginBottom: 10, display: "block" }}>⚠️ Active Allergy Symptoms</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {SYMPTOMS.map(s => {
+                    const on = symptoms[s.key].on;
+                    return (
+                      <div key={s.key}>
+                        <div className={`sym-row${on ? " active" : ""}`} onClick={() => toggle(s.key)}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ fontSize: "1.25rem" }}>{s.icon}</span>
+                            <span style={{ fontWeight: 600, color: on ? "#fff" : "var(--text)", fontSize: "0.9375rem" }}>{s.label}</span>
+                          </div>
+                          <div className={`btn btn-sm ${on ? "btn-danger-active" : "btn-ghost"}`}
+                            style={{ minWidth: 80, pointerEvents: "none" }}>
+                            {on ? "● Active" : "○ Clear"}
+                          </div>
                         </div>
-                        <div className={`btn btn-sm ${on ? "btn-danger-active" : "btn-ghost"}`}
-                          style={{ minWidth: 80, pointerEvents: "none" }}>
-                          {on ? "● Active" : "○ Clear"}
-                        </div>
+                        {on && (
+                          <div style={{ paddingTop: 8 }}>
+                            <input className="input" value={symptoms[s.key].note}
+                              onChange={e => setSymptoms(p => ({ ...p, [s.key]: { ...p[s.key], note: e.target.value } }))}
+                              onClick={e => e.stopPropagation()}
+                              placeholder={`Describe ${s.label.toLowerCase()} severity…`}
+                              style={{ fontSize: "0.875rem" }} />
+                          </div>
+                        )}
                       </div>
-                      {on && (
-                        <div style={{ paddingTop: 8 }}>
-                          <input className="input" value={symptoms[s.key].note}
-                            onChange={e => setSymptoms(p => ({ ...p, [s.key]: { ...p[s.key], note: e.target.value } }))}
-                            onClick={e => e.stopPropagation()}
-                            placeholder={`Describe ${s.label.toLowerCase()} severity…`}
-                            style={{ fontSize: "0.875rem" }} />
-                        </div>
-                      )}
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Allergen Exposure ──────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>🐾 Allergen Exposure</div>
+                  <div className="t-label" style={{ fontSize: "0.75rem" }}>Select allergens encountered today</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                  {ALLERGENS.map(all => {
+                    const active = allergenKeys.includes(all.key);
+                    return (
+                      <button
+                        key={all.key}
+                        type="button"
+                        onClick={() => setAllergenKeys(prev =>
+                          prev.includes(all.key) ? prev.filter(k => k !== all.key) : [...prev, all.key]
+                        )}
+                        style={{
+                          display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+                          padding: "10px 4px", borderRadius: 12, cursor: "pointer",
+                          background: active ? "rgba(99, 102, 241, 0.15)" : "var(--surface-2)",
+                          border: active ? "1.5px solid #6366f1" : "1px solid var(--border)",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <span style={{ fontSize: "1.4rem" }}>{all.icon}</span>
+                        <span style={{ fontSize: "0.7rem", fontWeight: 700, color: active ? "#818cf8" : "var(--muted)", whiteSpace: "nowrap" }}>
+                          {all.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Stomach Movement ─────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>🫁 Stomach Movement</div>
+                  <div className="t-label" style={{ fontSize: "0.75rem" }}>Bowel movement status today</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                  {([
+                    { key: "constipation", icon: "🟤", label: "Constipation", color: "#92400e", bg: "rgba(146,64,14,0.15)" },
+                    { key: "normal",       icon: "✅", label: "Normal",       color: "#16a34a", bg: "rgba(22,163,74,0.12)" },
+                    { key: "loose",        icon: "💧", label: "Loose",        color: "#0284c7", bg: "rgba(2,132,199,0.12)" },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setStomachMovement(prev => prev === opt.key ? "" : opt.key)}
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                        padding: "14px 8px", borderRadius: 12, cursor: "pointer",
+                        background: stomachMovement === opt.key ? opt.bg : "var(--surface-2)",
+                        border: stomachMovement === opt.key ? `1.5px solid ${opt.color}` : "1px solid var(--border)",
+                        boxShadow: stomachMovement === opt.key ? `0 0 12px ${opt.color}30` : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span style={{ fontSize: "1.5rem" }}>{opt.icon}</span>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: stomachMovement === opt.key ? opt.color : "var(--muted)" }}>
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {stomachMovement && stomachMovement !== "normal" && (
+                  <input
+                    className="input"
+                    value={stomachNote}
+                    onChange={e => setStomachNote(e.target.value)}
+                    placeholder="Any notes (pain, frequency, etc.)…"
+                    style={{ fontSize: "0.875rem" }}
+                  />
+                )}
+              </div>
+
+              {/* ── Urine Status ──────────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>💛 Urine Status</div>
+                  <div className="t-label" style={{ fontSize: "0.75rem" }}>Color, clarity and notes</div>
+                </div>
+
+                {/* Color selector */}
+                <div className="t-label" style={{ marginBottom: 8, fontSize: "0.7rem" }}>COLOR</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                  {URINE_COLORS.map(uc => (
+                    <button
+                      key={uc.key}
+                      type="button"
+                      onClick={() => setUrineColor(prev => prev === uc.key ? "" : uc.key)}
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                        padding: "8px 10px", borderRadius: 10, cursor: "pointer", flex: "0 0 auto",
+                        background: urineColor === uc.key ? `${uc.color}33` : "var(--surface-2)",
+                        border: urineColor === uc.key ? `2px solid ${uc.color}` : "1px solid var(--border)",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{
+                        width: 24, height: 24, borderRadius: "50%",
+                        background: uc.hex,
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        boxShadow: urineColor === uc.key ? `0 0 8px ${uc.color}60` : "none",
+                      }} />
+                      <span style={{ fontSize: "0.62rem", fontWeight: 700, color: urineColor === uc.key ? "#fff" : "var(--muted)", whiteSpace: "nowrap" }}>
+                        {uc.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Thickness / Clarity */}
+                <div className="t-label" style={{ marginBottom: 8, fontSize: "0.7rem" }}>CLARITY / THICKNESS</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                  {([
+                    { key: "thin",   icon: "💎", label: "Clear/Thin",  color: "#38bdf8" },
+                    { key: "normal", icon: "🔵", label: "Normal",       color: "#6366f1" },
+                    { key: "thick",  icon: "🟡", label: "Cloudy/Thick", color: "#f59e0b" },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setUrineThickness(prev => prev === opt.key ? "" : opt.key)}
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+                        padding: "12px 6px", borderRadius: 10, cursor: "pointer",
+                        background: urineThickness === opt.key ? `${opt.color}22` : "var(--surface-2)",
+                        border: urineThickness === opt.key ? `1.5px solid ${opt.color}` : "1px solid var(--border)",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span style={{ fontSize: "1.2rem" }}>{opt.icon}</span>
+                      <span style={{ fontSize: "0.68rem", fontWeight: 700, color: urineThickness === opt.key ? opt.color : "var(--muted)" }}>
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  className="input"
+                  value={urineNote}
+                  onChange={e => setUrineNote(e.target.value)}
+                  placeholder="Notes (odor, pain, frequency, etc.)…"
+                  style={{ fontSize: "0.875rem" }}
+                />
+              </div>
+
+              {/* ── Bloating ─────────────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: bloating ? 16 : 0 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>🫃 Bloating</div>
+                    <div className="t-label" style={{ fontSize: "0.75rem" }}>Abdominal swelling or discomfort</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBloating(p => !p)}
+                    style={{
+                      width: 52, height: 28, borderRadius: 14, cursor: "pointer", border: "none",
+                      background: bloating ? "#6366f1" : "var(--surface-2)",
+                      position: "relative", transition: "background 0.2s ease",
+                      boxShadow: bloating ? "0 0 10px rgba(99,102,241,0.4)" : "none",
+                    }}
+                  >
+                    <div style={{
+                      position: "absolute", top: 4, width: 20, height: 20, borderRadius: "50%", background: "#fff",
+                      left: bloating ? 28 : 4, transition: "left 0.2s ease",
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                    }} />
+                  </button>
+                </div>
+                {bloating && (
+                  <div>
+                    <div className="t-label" style={{ marginBottom: 10, fontSize: "0.7rem" }}>SEVERITY (1 = mild, 5 = severe)</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {([1, 2, 3, 4, 5] as const).map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setBloatingSeverity(n)}
+                          style={{
+                            flex: 1, height: 40, borderRadius: 10, cursor: "pointer",
+                            fontWeight: 800, fontSize: "0.875rem",
+                            background: bloatingSeverity === n
+                              ? n <= 2 ? "rgba(34,197,94,0.2)" : n === 3 ? "rgba(245,158,11,0.2)" : "rgba(239,68,68,0.2)"
+                              : "var(--surface-2)",
+                            border: bloatingSeverity === n
+                              ? `1.5px solid ${n <= 2 ? "#22c55e" : n === 3 ? "#f59e0b" : "#ef4444"}`
+                              : "1px solid var(--border)",
+                            color: bloatingSeverity === n
+                              ? n <= 2 ? "#22c55e" : n === 3 ? "#f59e0b" : "#ef4444"
+                              : "var(--muted)",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Sleep Status ─────────────────────────────────────── */}
+              <div className="card" style={{ padding: "20px" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 4 }}>🌙 Sleep Status</div>
+                  <div className="t-label" style={{ fontSize: "0.75rem" }}>Last night&apos;s sleep</div>
+                </div>
+
+                {/* Hours slider + input */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <label className="t-label" style={{ fontSize: "0.7rem" }}>HOURS SLEPT</label>
+                    <span style={{ fontWeight: 900, fontSize: "1.1rem", color: "#818cf8", letterSpacing: "-0.03em" }}>
+                      {sleepHours ? `${sleepHours}h` : "—"}
+                    </span>
+                  </div>
+                  <input
+                    type="range" min="0" max="12" step="0.5"
+                    value={sleepHours || "0"}
+                    onChange={e => setSleepHours(e.target.value)}
+                    style={{ width: "100%", accentColor: "#6366f1" }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span className="t-label" style={{ fontSize: "0.6rem" }}>0h</span>
+                    <span className="t-label" style={{ fontSize: "0.6rem" }}>6h</span>
+                    <span className="t-label" style={{ fontSize: "0.6rem" }}>12h</span>
+                  </div>
+                </div>
+
+                {/* Quality buttons */}
+                <div className="t-label" style={{ marginBottom: 8, fontSize: "0.7rem" }}>QUALITY</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {SLEEP_QUALITY.map(sq => (
+                    <button
+                      key={sq.key}
+                      type="button"
+                      onClick={() => setSleepQuality(prev => prev === sq.key ? "" : sq.key)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "8px 14px", borderRadius: 10, cursor: "pointer",
+                        background: sleepQuality === sq.key ? `${sq.color}22` : "var(--surface-2)",
+                        border: sleepQuality === sq.key ? `1.5px solid ${sq.color}` : "1px solid var(--border)",
+                        boxShadow: sleepQuality === sq.key ? `0 0 10px ${sq.color}30` : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span style={{ fontSize: "1rem" }}>{sq.icon}</span>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: sleepQuality === sq.key ? sq.color : "var(--muted)" }}>
+                        {sq.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Stress & Water Intake ──────────────────────────────── */}
+              <div className="card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem" }}>🧠 Stress Level</div>
+                      <div className="t-label" style={{ marginTop: 2 }}>1 = Relaxed, 10 = High Anxiety</div>
+                    </div>
+                    <span style={{ fontWeight: 900, fontSize: "1.1rem", color: stressLevel > 7 ? "#ef4444" : stressLevel > 4 ? "#fb923c" : "#22c55e", letterSpacing: "-0.03em" }}>
+                      {stressLevel}/10
+                    </span>
+                  </div>
+                  <input
+                    type="range" min="1" max="10" step="1"
+                    value={stressLevel}
+                    onChange={e => setStressLevel(parseInt(e.target.value))}
+                    style={{ width: "100%", accentColor: stressLevel > 7 ? "#ef4444" : stressLevel > 4 ? "#fb923c" : "#6366f1" }}
+                  />
+                </div>
+
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem" }}>💧 Daily Water Intake</div>
+                    <div className="t-label" style={{ marginTop: 2 }}>Recommended: 8–10 glasses</div>
+                  </div>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 0,
+                    background: "var(--surface-2)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)"
+                  }}>
+                    <button type="button" onClick={() => setWaterIntake(n => Math.max(0, n - 1))}
+                      style={{
+                        width: 40, height: 40, background: "none", border: "none", color: "var(--muted)",
+                        cursor: "pointer", fontSize: "1.2rem", display: "flex", alignItems: "center", justifyContent: "center"
+                      }}>−</button>
+                    <span style={{
+                      minWidth: 44, textAlign: "center", fontWeight: 900, fontSize: "1.1rem",
+                      color: "#60a5fa", letterSpacing: "-0.04em"
+                    }}>{waterIntake} 🥛</span>
+                    <button type="button" onClick={() => setWaterIntake(n => Math.min(20, n + 1))}
+                      style={{
+                        width: 40, height: 40, background: "none", border: "none", color: "var(--muted)",
+                        cursor: "pointer", fontSize: "1.2rem", display: "flex", alignItems: "center", justifyContent: "center"
+                      }}>+</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
