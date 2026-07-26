@@ -4,15 +4,39 @@ import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, orderBy, query, deleteDoc, doc } from "firebase/firestore";
 
+export type ParamKey = "temp" | "humidity" | "sneezes" | "stress" | "sleep" | "water" | "bloating" | "symptoms" | "risk";
+
+interface ParamConfig {
+  key: ParamKey;
+  label: string;
+  unit: string;
+  icon: string;
+  color: string;
+  getValue: (l: any) => number | null;
+}
+
 export default function Admin() {
   const [authed, setAuthed]   = useState(false);
   const [pw, setPw]           = useState("");
   const [pwErr, setPwErr]     = useState("");
   const [logs, setLogs]       = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab]         = useState<"overview" | "feed">("overview");
+  const [tab, setTab]         = useState<"overview" | "timeline" | "feed">("overview");
   const [selectedPatient, setSelectedPatient] = useState<string>("all");
   const [selectedLogs, setSelectedLogs]       = useState<string[]>([]);
+
+  // Timeline parameter comparison states
+  const [selectedParams, setSelectedParams] = useState<ParamKey[]>(["temp", "humidity", "sneezes", "risk"]);
+  const [hoveredPointIdx, setHoveredPointIdx] = useState<number | null>(null);
+  const [pinnedLogId, setPinnedLogId]         = useState<string | null>(null);
+
+  // New Feature States
+  const [searchTerm, setSearchTerm]           = useState("");
+  const [dateRange, setDateRange]             = useState<"7d" | "30d" | "all">("all");
+  const [aggregateDaily, setAggregateDaily]   = useState(false);
+  const [onlyHighRiskFilter, setOnlyHighRiskFilter] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [copiedPrompt, setCopiedPrompt]       = useState(false);
 
   const deleteSelected = async () => {
     if (!db) return;
@@ -27,6 +51,39 @@ export default function Admin() {
     } catch (e) {
       console.error(e);
       alert("Failed to delete some logs.");
+    }
+  };
+
+  const deleteSingleLog = async (id: string, name?: string, dateStr?: string) => {
+    if (!db) return;
+    const label = name ? `${name}'s log (${dateStr || "entry"})` : `this log entry`;
+    if (!window.confirm(`Are you sure you want to delete ${label}?`)) return;
+    try {
+      await deleteDoc(doc(db, "health_logs", id));
+      setLogs(prev => prev.filter(l => l.id !== id));
+      setSelectedLogs(prev => prev.filter(lId => lId !== id));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete log entry.");
+    }
+  };
+
+  const deletePatientProfile = async (patientName: string) => {
+    if (!db || !patientName || patientName === "all") return;
+    const patientLogs = logs.filter(l => l.profile?.name === patientName);
+    if (!window.confirm(`🚨 DANGER ZONE: Are you sure you want to delete patient profile "${patientName}" and ALL ${patientLogs.length} logged entries? This action cannot be undone.`)) return;
+    try {
+      for (const log of patientLogs) {
+        await deleteDoc(doc(db, "health_logs", log.id));
+      }
+      const deletedIds = patientLogs.map(l => l.id);
+      setLogs(prev => prev.filter(l => l.profile?.name !== patientName));
+      setSelectedLogs(prev => prev.filter(id => !deletedIds.includes(id)));
+      setSelectedPatient("all");
+      alert(`Patient profile "${patientName}" and ${patientLogs.length} logs deleted successfully.`);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete patient profile.");
     }
   };
 
@@ -53,23 +110,53 @@ export default function Admin() {
     else { setPwErr("Wrong password."); setPw(""); }
   };
 
+  const getLogTimestamp = (l: any): number => {
+    if (l.timestamp) {
+      if (typeof l.timestamp === "string") {
+        const t = new Date(l.timestamp).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (typeof l.timestamp === "number") return l.timestamp;
+      if (l.timestamp?.seconds) return l.timestamp.seconds * 1000;
+      if (l.timestamp?.toDate) return l.timestamp.toDate().getTime();
+    }
+    if (l.profile?.date) {
+      const d = new Date(`${l.profile.date} ${l.profile.time || "12:00"}`).getTime();
+      if (!isNaN(d) && d > 0) return d;
+    }
+    if (l.createdAt) {
+      const c = new Date(l.createdAt).getTime();
+      if (!isNaN(c) && c > 0) return c;
+    }
+    return 0;
+  };
+
+  const getLogSymptomsCount = (l: any): number => {
+    if (!l.symptoms) return 0;
+    if (Array.isArray(l.symptoms)) return l.symptoms.length;
+    return Object.values(l.symptoms || {}).filter((v: any) => v?.on || v?.active || v === true).length;
+  };
+
   const exportJSON = () => {
     if (!logs.length) return;
-    const sorted = [...logs].sort((a, b) =>
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    const base = new Date(sorted[0].timestamp).getTime();
+    const sorted = [...logs].sort((a, b) => getLogTimestamp(a) - getLogTimestamp(b));
+    const base = getLogTimestamp(sorted[0]) || Date.now();
     const out  = sorted.map((l, i) => ({
       log_index: i + 1,
-      relative_day: Math.floor((new Date(l.timestamp).getTime() - base) / 86400000),
-      location: l.profile?.location || l.profile?.locationTag || "—",
-      climate: { temp: l.exposure?.temperature, humidity: l.exposure?.humidity },
-      symptoms: Object.entries(l.symptoms || {})
-        .filter(([, v]: any) => v?.on || v?.active || v === true)
-        .map(([k]) => k),
-      sneezes: l.sneezing?.count || 0,
-      food: l.exposure?.foodIntake || "",
-      meds: l.exposure?.medicines || "",
+      relative_day: Math.floor((getLogTimestamp(l) - base) / 86400000),
+      location: l.profile?.location || l.profile?.locationTag || l.location || "—",
+      climate: {
+        temp: l.exposure?.temperature ?? l.climate?.temp ?? l.temperature ?? l.temp,
+        humidity: l.exposure?.humidity ?? l.climate?.humidity ?? l.humidity ?? l.hum
+      },
+      symptoms: Array.isArray(l.symptoms)
+        ? l.symptoms
+        : Object.entries(l.symptoms || {})
+            .filter(([, v]: any) => v?.on || v?.active || v === true)
+            .map(([k]) => k),
+      sneezes: l.sneezing?.count ?? l.sneezes ?? l.sneezingCount ?? 0,
+      food: l.exposure?.foodIntake || l.foodIntake || l.food || "",
+      meds: l.exposure?.medicines || l.medicines || l.meds || "",
       wellness: l.wellness || {},
     }));
     const a = document.createElement("a");
@@ -79,19 +166,129 @@ export default function Admin() {
   };
 
   // ─── helpers ──────────────────────────────────────────────────────────────
-  const parseN = (v: string | undefined) => v ? parseFloat(v.replace(/[^\d.]/g, "")) : null;
+  const parseN = (v: string | number | undefined | null): number | null => {
+    if (v === undefined || v === null || v === "") return null;
+    if (typeof v === "number") return isNaN(v) ? null : v;
+    const p = parseFloat(String(v).replace(/[^\d.-]/g, ""));
+    return isNaN(p) ? null : p;
+  };
+
+  const getRiskScore = (l: any) => {
+    const t = parseN(l.exposure?.temperature ?? l.climate?.temp ?? l.temperature ?? l.temp) ?? 25;
+    const h = parseN(l.exposure?.humidity ?? l.climate?.humidity ?? l.humidity ?? l.hum) ?? 50;
+    let s = 30;
+    if (h > 65 || h < 35) s += 25;
+    if (t > 28 || t < 16) s += 20;
+    const syms = getLogSymptomsCount(l);
+    s += syms * 10;
+    return Math.min(100, s);
+  };
+
+  const PARAM_CONFIGS: Record<ParamKey, ParamConfig> = {
+    temp:     { key: "temp",     label: "Temperature",  unit: "°C",     icon: "🌡️", color: "#fb923c", getValue: l => parseN(l.exposure?.temperature ?? l.climate?.temp ?? l.temperature ?? l.temp) },
+    humidity: { key: "humidity", label: "Humidity",     unit: "%",      icon: "💧", color: "#38bdf8", getValue: l => parseN(l.exposure?.humidity ?? l.climate?.humidity ?? l.humidity ?? l.hum) },
+    sneezes:  { key: "sneezes",  label: "Sneezes",      unit: "count",  icon: "😤", color: "#f59e0b", getValue: l => parseN(l.sneezing?.count ?? l.sneezes ?? l.sneezingCount) },
+    stress:   { key: "stress",   label: "Stress Level", unit: "/10",    icon: "🧠", color: "#ec4899", getValue: l => parseN(l.wellness?.stress ?? l.stress) },
+    sleep:    { key: "sleep",    label: "Sleep Hours",  unit: "hrs",    icon: "🌙", color: "#818cf8", getValue: l => parseN(l.wellness?.sleep?.hours ?? l.sleepHours ?? l.sleep) },
+    water:    { key: "water",    label: "Water Intake", unit: "glasses",icon: "🥛", color: "#22d3ee", getValue: l => parseN(l.wellness?.water ?? l.waterIntake ?? l.water) },
+    bloating: { key: "bloating", label: "Bloating",     unit: "sev",    icon: "🫃", color: "#a855f7", getValue: l => parseN(l.wellness?.bloating?.severity ?? l.bloatingSeverity ?? l.bloating) },
+    symptoms: { key: "symptoms", label: "Active Syms",  unit: "count",  icon: "🩺", color: "#ef4444", getValue: l => getLogSymptomsCount(l) },
+    risk:     { key: "risk",     label: "Risk Index",   unit: "%",      icon: "⚠️", color: "#22c55e", getValue: l => getRiskScore(l) },
+  };
+
+  const toggleParam = (key: ParamKey) => {
+    setSelectedParams(prev => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(k => k !== key);
+      }
+      return [...prev, key];
+    });
+  };
 
   const patients = Array.from(new Set(logs.map(l => l.profile?.name).filter(Boolean))) as string[];
-  const filteredLogs = selectedPatient === "all"
-    ? logs
-    : logs.filter(l => l.profile?.name === selectedPatient);
+
+  // 🔍 Multi-field Search & High-Risk Filter
+  const filteredLogs = logs.filter(l => {
+    if (selectedPatient !== "all" && l.profile?.name !== selectedPatient) return false;
+    
+    if (onlyHighRiskFilter && getRiskScore(l) < 65 && (l.sneezing?.count || 0) < 8 && (l.wellness?.stress || 0) < 8) return false;
+
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      const name = (l.profile?.name || "").toLowerCase();
+      const loc = (l.profile?.location || l.profile?.locationTag || "").toLowerCase();
+      const food = (l.exposure?.foodIntake || "").toLowerCase();
+      const meds = (l.exposure?.medicines || "").toLowerCase();
+      const feel = (l.profile?.feeling || "").toLowerCase();
+      const symKeys = Object.entries(l.symptoms || {})
+        .filter(([, v]: any) => v?.on || v?.active || v === true)
+        .map(([k]) => k.toLowerCase())
+        .join(" ");
+      const algs = (l.wellness?.allergens || []).join(" ").toLowerCase();
+
+      const matches = name.includes(term) || loc.includes(term) || food.includes(term) || meds.includes(term) || feel.includes(term) || symKeys.includes(term) || algs.includes(term);
+      if (!matches) return false;
+    }
+
+    return true;
+  });
+
+  // 📅 Date Range Filter for Timeline
+  const rawChronoLogs = [...filteredLogs]
+    .filter(l => {
+      if (dateRange === "all") return true;
+      const logTime = new Date(l.timestamp || l.profile?.date || 0).getTime();
+      if (!logTime) return true;
+      const maxTime = Math.max(...logs.map(lg => new Date(lg.timestamp || lg.profile?.date || 0).getTime()), Date.now());
+      const cutoffDays = dateRange === "7d" ? 7 : 30;
+      return logTime >= (maxTime - cutoffDays * 86400000);
+    })
+    .sort((a, b) => new Date(a.timestamp || a.profile?.date || 0).getTime() - new Date(b.timestamp || b.profile?.date || 0).getTime());
+
+  // Daily Aggregation for Timeline Smoothing
+  const chronoLogs = aggregateDaily ? (() => {
+    const groups: Record<string, any[]> = {};
+    rawChronoLogs.forEach(l => {
+      const dayKey = l.profile?.date || (l.timestamp ? l.timestamp.slice(0, 10) : "unknown");
+      if (!groups[dayKey]) groups[dayKey] = [];
+      groups[dayKey].push(l);
+    });
+
+    return Object.entries(groups).map(([dayKey, dayLogs]) => {
+      const avgTemp = Math.round(dayLogs.reduce((acc, l) => acc + (parseN(l.exposure?.temperature) ?? 0), 0) / dayLogs.length);
+      const avgHum = Math.round(dayLogs.reduce((acc, l) => acc + (parseN(l.exposure?.humidity) ?? 0), 0) / dayLogs.length);
+      const avgSneezes = Math.round(dayLogs.reduce((acc, l) => acc + (l.sneezing?.count || 0), 0) / dayLogs.length);
+      const avgStress = Math.round(dayLogs.reduce((acc, l) => acc + (l.wellness?.stress || 0), 0) / dayLogs.length);
+      const avgSleep = Math.round(dayLogs.reduce((acc, l) => acc + (l.wellness?.sleep?.hours || 0), 0) / dayLogs.length);
+      const avgWater = Math.round(dayLogs.reduce((acc, l) => acc + (l.wellness?.water || 0), 0) / dayLogs.length);
+      
+      const combinedSyms: Record<string, any> = {};
+      dayLogs.forEach(l => {
+        Object.entries(l.symptoms || {}).forEach(([k, v]: any) => {
+          if (v?.on || v?.active || v === true) combinedSyms[k] = { on: true };
+        });
+      });
+
+      return {
+        id: `agg-${dayKey}`,
+        isAggregated: true,
+        timestamp: dayKey,
+        profile: { name: dayLogs[0]?.profile?.name || "Patient", date: dayKey, location: `${dayLogs.length} logs avg` },
+        exposure: { temperature: `${avgTemp}°C`, humidity: `${avgHum}%` },
+        sneezing: { count: avgSneezes },
+        wellness: { stress: avgStress, sleep: { hours: avgSleep }, water: avgWater },
+        symptoms: combinedSyms
+      };
+    });
+  })() : rawChronoLogs;
 
   const avgTemp = () => {
-    const vals = filteredLogs.map(l => parseN(l.exposure?.temperature)).filter(Boolean) as number[];
+    const vals = filteredLogs.map(l => parseN(l.exposure?.temperature)).filter(v => v !== null) as number[];
     return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}°C` : "—";
   };
   const avgHum = () => {
-    const vals = filteredLogs.map(l => parseN(l.exposure?.humidity)).filter(Boolean) as number[];
+    const vals = filteredLogs.map(l => parseN(l.exposure?.humidity)).filter(v => v !== null) as number[];
     return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%` : "—";
   };
 
@@ -106,19 +303,82 @@ export default function Admin() {
 
   const latestRisk = (() => {
     if (!filteredLogs[0]) return { score: 0, label: "No data", color: "#64748b" };
-    const l = filteredLogs[0];
-    const t = parseN(l.exposure?.temperature) ?? 25;
-    const h = parseN(l.exposure?.humidity) ?? 50;
-    let s = 30;
-    if (h > 65 || h < 35) s += 25;
-    if (t > 28 || t < 16) s += 20;
-    const syms = Object.values(l.symptoms || {}).filter((v: any) => v?.on || v?.active || v === true).length;
-    s += syms * 10;
-    const score = Math.min(100, s);
+    const score = getRiskScore(filteredLogs[0]);
     if (score < 40) return { score, label: "Low", color: "#22c55e" };
     if (score < 65) return { score, label: "Moderate", color: "#f59e0b" };
     return { score, label: "High", color: "#ef4444" };
   })();
+
+  // 🔔 Alert Center breaches
+  const highRiskBreaches = logs.filter(l => getRiskScore(l) >= 65 || (l.sneezing?.count || 0) >= 8 || (l.wellness?.stress || 0) >= 8);
+
+  // 🐾 Allergen Heatmap Matrix Analysis
+  const ALLERGEN_MAP = [
+    { id: "pollen", label: "Pollen", icon: "🌳" },
+    { id: "dust", label: "Dust", icon: "🧹" },
+    { id: "pets", label: "Pets", icon: "🐱" },
+    { id: "mold", label: "Mold", icon: "🍄" },
+    { id: "perfume", label: "Perfume", icon: "🧴" },
+    { id: "smoke", label: "Smoke", icon: "🚬" },
+  ];
+
+  const allergenStats = ALLERGEN_MAP.map(alg => {
+    const exposed = filteredLogs.filter(l => (l.wellness?.allergens || []).includes(alg.id));
+    const unexposed = filteredLogs.filter(l => !(l.wellness?.allergens || []).includes(alg.id));
+
+    const count = exposed.length;
+    const avgRiskExp = exposed.length ? Math.round(exposed.reduce((acc, l) => acc + getRiskScore(l), 0) / exposed.length) : 0;
+    const avgRiskUnexp = unexposed.length ? Math.round(unexposed.reduce((acc, l) => acc + getRiskScore(l), 0) / unexposed.length) : 0;
+    const riskDiff = avgRiskUnexp ? Math.round(((avgRiskExp - avgRiskUnexp) / avgRiskUnexp) * 100) : 0;
+
+    return { ...alg, count, avgRiskExp, avgRiskUnexp, riskDiff };
+  });
+
+  // Pearson Correlation calculation
+  const computeCorrelation = (pk1: ParamKey, pk2: ParamKey) => {
+    const cfg1 = PARAM_CONFIGS[pk1];
+    const cfg2 = PARAM_CONFIGS[pk2];
+    const pairs: { x: number; y: number }[] = [];
+    chronoLogs.forEach(l => {
+      const v1 = cfg1.getValue(l);
+      const v2 = cfg2.getValue(l);
+      if (v1 !== null && v2 !== null) {
+        pairs.push({ x: v1, y: v2 });
+      }
+    });
+    if (pairs.length < 3) return null;
+    const n = pairs.length;
+    const sumX = pairs.reduce((acc, p) => acc + p.x, 0);
+    const sumY = pairs.reduce((acc, p) => acc + p.y, 0);
+    const sumXY = pairs.reduce((acc, p) => acc + p.x * p.y, 0);
+    const sumX2 = pairs.reduce((acc, p) => acc + p.x * p.x, 0);
+    const sumY2 = pairs.reduce((acc, p) => acc + p.y * p.y, 0);
+    const num = n * sumXY - sumX * sumY;
+    const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    if (den === 0) return 0;
+    return num / den;
+  };
+
+  // Generate MedGemma Report Markdown Text
+  const generateMedGemmaPrompt = () => {
+    const patientName = selectedPatient === "all" ? "All Patients Cohort" : selectedPatient;
+    const sorted = [...filteredLogs].sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+    const startDate = sorted[0]?.profile?.date || "—";
+    const endDate = sorted[sorted.length - 1]?.profile?.date || "—";
+    const activeSymptoms = Object.entries(symCounts).filter(([, c]) => c > 0).map(([k, c]) => `${k} (${c}x)`).join(", ");
+    const topTriggers = allergenStats.filter(a => a.count > 0).map(a => `${a.icon} ${a.label} (${a.count} logs, Risk ${a.avgRiskExp}%)`).join(", ");
+
+    return `### ZenSit Clinical Telemetry Summary Report
+**Patient Profile:** ${patientName}
+**Observation Window:** ${startDate} to ${endDate} (${filteredLogs.length} total logs)
+**Environmental Baseline:** Avg Temp ${avgTemp()}, Avg Humidity ${avgHum()}
+**Symptom Occurrences:** ${activeSymptoms || "None"}
+**Identified Trigger Exposures:** ${topTriggers || "None"}
+**Latest Risk Index:** ${latestRisk.score}% (${latestRisk.label})
+
+**Clinical Objective for MedGemma:**
+Analyze the above longitudinal telemetry data for potential environmental allergy flare triggers, nocturnal symptom aggravation, and recommend non-pharmacological ambient modifications or clinical evaluation steps.`;
+  };
 
   // ─── Login gate ────────────────────────────────────────────────────────────
   if (!authed) return (
@@ -165,7 +425,7 @@ export default function Admin() {
     <div style={{ minHeight: "100svh", background: "var(--bg)", fontFamily: "var(--font)", paddingBottom: 60 }}>
       {/* Header */}
       <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 50 }}>
-        <div className="container" style={{ height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="container" style={{ height: 64, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div>
             <a href="/wizard" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", fontWeight: 900, fontSize: "1.1rem", color: "#fff",
               letterSpacing: "-0.03em" }}>
@@ -173,8 +433,28 @@ export default function Admin() {
               Zensit <span style={{ color: "#818cf8" }}>Console</span>
             </a>
             <div className="t-label" style={{ marginTop: 2, fontSize: "0.65rem" }}>
-              {selectedPatient === "all" ? `${logs.length} total logs` : `${filteredLogs.length} of ${logs.length} logs for ${selectedPatient}`}
+              {selectedPatient === "all" ? `${filteredLogs.length} total logs` : `${filteredLogs.length} of ${logs.length} logs for ${selectedPatient}`}
             </div>
+          </div>
+
+          {/* 🔍 Search Input Bar */}
+          <div style={{ flex: 1, maxWidth: 280, minWidth: 180 }}>
+            <input
+              type="text"
+              className="input"
+              placeholder="🔍 Search symptoms, meds, food, location…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              style={{
+                padding: "6px 12px",
+                fontSize: "0.8125rem",
+                width: "100%",
+                background: "var(--bg)",
+                color: "#fff",
+                border: "1px solid var(--border)",
+                borderRadius: "10px"
+              }}
+            />
           </div>
           
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -199,31 +479,104 @@ export default function Admin() {
                 ))}
               </select>
             )}
-            {selectedLogs.length > 0 && (
-              <button onClick={deleteSelected} className="btn btn-danger btn-sm" style={{ background: "var(--red)", color: "#fff", display: "flex", alignItems: "center", gap: 4 }}>
-                🗑️ Delete Selected ({selectedLogs.length})
+            {selectedPatient !== "all" && (
+              <button
+                onClick={() => deletePatientProfile(selectedPatient)}
+                className="btn btn-danger btn-sm"
+                title={`Delete profile and all ${filteredLogs.length} logs for ${selectedPatient}`}
+                style={{ background: "rgba(239, 68, 68, 0.2)", color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.4)", display: "flex", alignItems: "center", gap: 4 }}
+              >
+                🗑️ Profile
               </button>
             )}
+            <button onClick={() => setShowReportModal(true)} className="btn btn-ghost btn-sm" style={{ background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}>
+              📄 Clinical Report
+            </button>
             <button onClick={exportJSON} className="btn btn-primary btn-sm">⬇ Export JSON</button>
           </div>
         </div>
       </div>
 
-      <div className="container" style={{ paddingTop: 28 }}>
-        {/* Tab bar */}
-        <div style={{ display: "flex", gap: 0, marginBottom: 28, background: "var(--surface)",
-          border: "1px solid var(--border)", borderRadius: 14, padding: 4, width: "fit-content" }}>
-          {(["overview", "feed"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} className="btn"
+      <div className="container" style={{ paddingTop: 24 }}>
+        {/* 🔔 High-Risk Alert Center Banner */}
+        {highRiskBreaches.length > 0 && (
+          <div style={{
+            marginBottom: 20,
+            background: "rgba(239, 68, 68, 0.08)",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            borderRadius: 14,
+            padding: "12px 18px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: "1.2rem" }}>🚨</span>
+              <div>
+                <div style={{ fontWeight: 800, color: "#fca5a5", fontSize: "0.875rem" }}>
+                  Clinical Threshold Alert: {highRiskBreaches.length} High-Risk Incidents Detected
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                  Logs containing Risk $\ge 65\%$, Sneezes $\ge 8$, or Stress $\ge 8/10$ requiring attention.
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setOnlyHighRiskFilter(prev => !prev)}
+              className="btn btn-sm"
               style={{
-                padding: "8px 20px", fontSize: "0.8125rem",
-                background: tab === t ? "var(--indigo)" : "transparent",
-                color: tab === t ? "#fff" : "var(--muted)",
-                borderRadius: 10, border: "none",
-              }}>
-              {t === "overview" ? "📈 Overview" : "📋 All Logs"}
+                background: onlyHighRiskFilter ? "#ef4444" : "rgba(239, 68, 68, 0.2)",
+                color: "#fff",
+                border: "1px solid rgba(239, 68, 68, 0.5)"
+              }}
+            >
+              {onlyHighRiskFilter ? "✓ Showing High Risk Only" : "⚡ Filter High Risk Incidents"}
             </button>
-          ))}
+          </div>
+        )}
+
+        {/* Tab bar + Date Range Selector */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
+          <div style={{ display: "flex", gap: 0, background: "var(--surface)",
+            border: "1px solid var(--border)", borderRadius: 14, padding: 4, width: "fit-content" }}>
+            {(["overview", "timeline", "feed"] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)} className="btn"
+                style={{
+                  padding: "8px 20px", fontSize: "0.8125rem",
+                  background: tab === t ? "var(--indigo)" : "transparent",
+                  color: tab === t ? "#fff" : "var(--muted)",
+                  borderRadius: 10, border: "none",
+                }}>
+                {t === "overview" ? "📈 Overview" : t === "timeline" ? "⏱️ Timeline & Trends" : "📋 All Logs"}
+              </button>
+            ))}
+          </div>
+
+          {/* 📅 Date Range Filter */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="t-label" style={{ fontSize: "0.65rem" }}>Time Window:</span>
+            {(["all", "30d", "7d"] as const).map(r => (
+              <button
+                key={r}
+                onClick={() => setDateRange(r)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: dateRange === r ? "var(--surface-2)" : "transparent",
+                  border: dateRange === r ? "1px solid var(--indigo)" : "1px solid var(--border)",
+                  color: dateRange === r ? "#fff" : "var(--muted)"
+                }}
+              >
+                {r === "all" ? "All Time" : r === "30d" ? "Last 30 Days" : "Last 7 Days"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── OVERVIEW ──────────────────────────────────────────────── */}
@@ -232,10 +585,10 @@ export default function Admin() {
             {/* Metric cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
               {[
-                { label: "Total Logs",    value: String(logs.length), icon: "📋", color: "#818cf8" },
-                { label: "Avg Temp",      value: avgTemp(),           icon: "🌡️", color: "#fb923c" },
-                { label: "Avg Humidity",  value: avgHum(),            icon: "💧", color: "#60a5fa" },
-                { label: "Latest Risk",   value: `${latestRisk.score}%`, icon: "⚠️", color: latestRisk.color },
+                { label: "Total Logs",    value: String(filteredLogs.length), icon: "📋", color: "#818cf8" },
+                { label: "Avg Temp",      value: avgTemp(),                   icon: "🌡️", color: "#fb923c" },
+                { label: "Avg Humidity",  value: avgHum(),                    icon: "💧", color: "#60a5fa" },
+                { label: "Latest Risk",   value: `${latestRisk.score}%`,      icon: "⚠️", color: latestRisk.color },
               ].map((m, i) => (
                 <div key={i} className="card" style={{ padding: "20px 18px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -249,8 +602,54 @@ export default function Admin() {
               ))}
             </div>
 
-            {/* Symptom bars + Chart side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+            {/* Allergen Heatmap Matrix + Symptom Frequency */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+              {/* 🐾 Allergen Trigger Heatmap Card */}
+              <div className="card" style={{ padding: "24px 20px" }}>
+                <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 16,
+                  paddingBottom: 12, borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>🐾 Allergen Trigger Heatmap</span>
+                  <span className="pill pill-indigo" style={{ fontSize: "0.65rem" }}>Exposure Impact</span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {allergenStats.map(alg => (
+                    <div key={alg.id} style={{ background: "var(--surface-2)", borderRadius: 10, padding: "10px 12px", border: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.8125rem" }}>
+                          {alg.icon} {alg.label}
+                        </span>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{alg.count} logs</span>
+                          {alg.count > 0 && (
+                            <span style={{
+                              fontSize: "0.7rem",
+                              fontWeight: 800,
+                              padding: "2px 6px",
+                              borderRadius: 6,
+                              background: alg.riskDiff > 0 ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                              color: alg.riskDiff > 0 ? "#ef4444" : "#22c55e"
+                            }}>
+                              {alg.riskDiff > 0 ? `+${alg.riskDiff}% Risk` : `${alg.riskDiff}% Risk`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Progress meter */}
+                      <div style={{ height: 6, background: "var(--surface)", borderRadius: 999, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", borderRadius: 999,
+                          width: `${Math.min(100, (alg.count / Math.max(filteredLogs.length, 1)) * 100)}%`,
+                          background: alg.riskDiff > 20 ? "linear-gradient(90deg, #f59e0b, #ef4444)" : "linear-gradient(90deg, #6366f1, #818cf8)",
+                          transition: "width 0.8s ease"
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Symptom distribution */}
               <div className="card" style={{ padding: "24px 20px" }}>
                 <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 20,
@@ -276,69 +675,589 @@ export default function Admin() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
 
-              {/* Mini SVG trend chart */}
-              <div className="card" style={{ padding: "24px 20px" }}>
-                <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9375rem", marginBottom: 8,
-                  paddingBottom: 14, borderBottom: "1px solid var(--border)", display: "flex",
-                  justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Temp vs Sneezes</span>
-                  <div style={{ display: "flex", gap: 12 }}>
-                    <span className="t-label" style={{ color: "#fb923c", fontSize: "0.65rem" }}>● Temp</span>
-                    <span className="t-label" style={{ color: "#6366f1", fontSize: "0.65rem" }}>- - Sneezes</span>
+        {/* ── TIMELINE & COMPARATIVE TRENDS ──────────────────────────── */}
+        {tab === "timeline" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {/* Header Controls & Parameter Selector */}
+            <div className="card-hi" style={{ padding: "24px 20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
+                <div>
+                  <h2 style={{ fontWeight: 800, fontSize: "1.2rem", color: "#fff", marginBottom: 4 }}>
+                    ⏱️ Parameter Timeline Comparison
+                  </h2>
+                  <p style={{ fontSize: "0.8125rem", color: "var(--muted)" }}>
+                    Select parameters below to overlay & compare stats chronologically on the comparative graph.
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button
+                    onClick={() => setAggregateDaily(prev => !prev)}
+                    className="btn btn-sm"
+                    style={{
+                      background: aggregateDaily ? "var(--indigo)" : "var(--surface-2)",
+                      color: aggregateDaily ? "#fff" : "var(--muted)",
+                      border: "1px solid var(--border)"
+                    }}
+                  >
+                    {aggregateDaily ? "📊 Daily Aggregated" : "📍 Raw Logs"}
+                  </button>
+                  <div style={{ fontSize: "0.75rem", color: "var(--muted)", background: "rgba(255,255,255,0.03)", padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                    {chronoLogs.length} Data Points Logged
                   </div>
                 </div>
-                {(() => {
-                  const sorted = [...filteredLogs].filter(l => l.timestamp)
-                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                  if (sorted.length < 2) return (
-                    <div style={{ height: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <span className="t-label" style={{ fontStyle: "italic" }}>Need 2+ logs</span>
+              </div>
+
+              {/* Parameter Chip Selectors */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {(Object.keys(PARAM_CONFIGS) as ParamKey[]).map(pk => {
+                  const cfg = PARAM_CONFIGS[pk];
+                  const isSelected = selectedParams.includes(pk);
+                  const validVals = chronoLogs.map(l => cfg.getValue(l)).filter(v => v !== null) as number[];
+                  const avgVal = validVals.length ? Math.round((validVals.reduce((a, b) => a + b, 0) / validVals.length) * 10) / 10 : null;
+
+                  return (
+                    <button
+                      key={pk}
+                      onClick={() => toggleParam(pk)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "8px 14px",
+                        borderRadius: 12,
+                        fontSize: "0.8125rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
+                        background: isSelected ? `${cfg.color}18` : "rgba(255,255,255,0.02)",
+                        border: isSelected ? `1.5px solid ${cfg.color}` : "1px solid var(--border)",
+                        color: isSelected ? "#fff" : "var(--muted)",
+                        boxShadow: isSelected ? `0 0 12px ${cfg.color}30` : "none"
+                      }}
+                    >
+                      <span style={{ fontSize: "1rem" }}>{cfg.icon}</span>
+                      <span>{cfg.label}</span>
+                      {avgVal !== null && (
+                        <span style={{
+                          fontSize: "0.7rem",
+                          background: isSelected ? cfg.color : "var(--surface-2)",
+                          color: isSelected ? "#000" : "var(--text)",
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          fontWeight: 800,
+                          marginLeft: 4
+                        }}>
+                          {avgVal}{cfg.unit}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* SVG COMPARATIVE MULTI-LINE TIMELINE GRAPH */}
+            <div className="card" style={{ padding: "24px 20px", position: "relative" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 800, fontSize: "1rem", color: "#fff" }}>Normalized Parameter Overlay</span>
+                  <span className="t-label" style={{ fontSize: "0.65rem", background: "var(--indigo-lo)", padding: "2px 8px", borderRadius: 6, color: "#818cf8" }}>
+                    0% – 100% Scale Normalized
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {selectedParams.map(pk => {
+                    const cfg = PARAM_CONFIGS[pk];
+                    return (
+                      <span key={pk} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "0.75rem", color: cfg.color, fontWeight: 700 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
+                        {cfg.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {chronoLogs.length < 2 ? (
+                <div style={{ height: 260, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>
+                  <div style={{ fontSize: "2.5rem", marginBottom: 8 }}>📊</div>
+                  <p style={{ fontSize: "0.875rem" }}>Need at least 2 logs matching filter criteria to generate a timeline chart.</p>
+                  <a href="/wizard" className="btn btn-primary btn-sm" style={{ marginTop: 12 }}>+ Add Log in Wizard</a>
+                </div>
+              ) : (
+                (() => {
+                  const W = 800;
+                  const H = 260;
+                  const PL = 36;
+                  const PR = 20;
+                  const PT = 24;
+                  const PB = 40;
+                  const cW = W - PL - PR;
+                  const cH = H - PT - PB;
+                  const N = chronoLogs.length;
+
+                  const paramScales = selectedParams.map(pk => {
+                    const cfg = PARAM_CONFIGS[pk];
+                    const rawVals = chronoLogs.map(l => cfg.getValue(l));
+                    const validVals = rawVals.filter(v => v !== null) as number[];
+                    let min = validVals.length ? Math.min(...validVals) : 0;
+                    let max = validVals.length ? Math.max(...validVals) : 100;
+                    if (min === max) { min = min - 1; max = max + 1; }
+                    return { pk, cfg, min, max };
+                  });
+
+                  const pointsMap = selectedParams.map(pk => {
+                    const scale = paramScales.find(s => s.pk === pk)!;
+                    const cfg = PARAM_CONFIGS[pk];
+                    const pts = chronoLogs.map((l, i) => {
+                      const val = cfg.getValue(l);
+                      const x = PL + (N > 1 ? (i / (N - 1)) * cW : cW / 2);
+                      let y = H - PB - cH / 2;
+                      if (val !== null) {
+                        const norm = (val - scale.min) / (scale.max - scale.min);
+                        y = H - PB - norm * cH;
+                      }
+                      return { x, y, val, log: l, index: i };
+                    });
+
+                    let pathD = "";
+                    let isFirst = true;
+                    pts.forEach(p => {
+                      if (p.val !== null) {
+                        pathD += `${isFirst ? "M" : " L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+                        isFirst = false;
+                      }
+                    });
+
+                    return { pk, cfg, pts, pathD };
+                  });
+
+                  const activeHoverIndex = hoveredPointIdx !== null ? hoveredPointIdx : null;
+                  const hoveredLog = activeHoverIndex !== null ? chronoLogs[activeHoverIndex] : null;
+
+                  return (
+                    <div style={{ position: "relative", width: "100%" }}>
+                      <svg
+                        viewBox={`0 0 ${W} ${H}`}
+                        style={{ width: "100%", height: "auto", overflow: "visible" }}
+                        onMouseLeave={() => setHoveredPointIdx(null)}
+                      >
+                        {/* Grid lines */}
+                        {[0, 0.25, 0.5, 0.75, 1].map((r, idx) => {
+                          const y = PT + r * cH;
+                          return (
+                            <g key={idx}>
+                              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth={1} strokeDasharray={r === 0.5 ? "4 4" : "none"} />
+                              <text x={PL - 6} y={y + 3} fill="var(--dim)" fontSize="9" textAnchor="end" fontWeight="600">
+                                {Math.round((1 - r) * 100)}%
+                              </text>
+                            </g>
+                          );
+                        })}
+
+                        {/* Parameter Paths */}
+                        {pointsMap.map(({ pk, cfg, pts, pathD }) => (
+                          <g key={pk}>
+                            {pathD && (
+                              <path
+                                d={pathD}
+                                fill="none"
+                                stroke={cfg.color}
+                                strokeWidth={2.5}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                style={{ transition: "d 0.3s ease" }}
+                              />
+                            )}
+
+                            {pts.map((p, i) => {
+                              if (p.val === null) return null;
+                              const isHovered = activeHoverIndex === i;
+                              const isPinned = pinnedLogId === p.log.id;
+                              return (
+                                <circle
+                                  key={i}
+                                  cx={p.x}
+                                  cy={p.y}
+                                  r={isHovered || isPinned ? 6 : 3.5}
+                                  fill="var(--bg)"
+                                  stroke={cfg.color}
+                                  strokeWidth={isHovered || isPinned ? 3 : 2}
+                                  style={{ cursor: "pointer", transition: "all 0.15s ease" }}
+                                  onClick={() => setPinnedLogId(p.log.id)}
+                                />
+                              );
+                            })}
+                          </g>
+                        ))}
+
+                        {/* Hover Vertical Guide Line */}
+                        {activeHoverIndex !== null && (() => {
+                          const x = PL + (N > 1 ? (activeHoverIndex / (N - 1)) * cW : cW / 2);
+                          return (
+                            <line
+                              x1={x}
+                              y1={PT}
+                              x2={x}
+                              y2={H - PB}
+                              stroke="rgba(255,255,255,0.3)"
+                              strokeWidth={1.5}
+                              strokeDasharray="3 3"
+                              pointerEvents="none"
+                            />
+                          );
+                        })()}
+
+                        {/* X-axis date labels */}
+                        {chronoLogs.map((l, i) => {
+                          const x = PL + (N > 1 ? (i / (N - 1)) * cW : cW / 2);
+                          const dateLabel = l.profile?.date ? l.profile.date.slice(5) : `Log #${i+1}`;
+                          if (N > 10 && i % Math.ceil(N / 8) !== 0 && i !== N - 1) return null;
+                          return (
+                            <text
+                              key={i}
+                              x={x}
+                              y={H - 12}
+                              fill={activeHoverIndex === i ? "#fff" : "var(--muted)"}
+                              fontSize="10"
+                              fontWeight={activeHoverIndex === i ? "800" : "500"}
+                              textAnchor="middle"
+                            >
+                              {dateLabel}
+                            </text>
+                          );
+                        })}
+
+                        {/* Transparent Overlay Rects for Easy Mouse Scrubbing */}
+                        {chronoLogs.map((l, i) => {
+                          const itemW = cW / N;
+                          const x = PL + i * itemW - itemW / 2;
+                          return (
+                            <rect
+                              key={i}
+                              x={Math.max(PL, x)}
+                              y={PT}
+                              width={itemW}
+                              height={cH}
+                              fill="transparent"
+                              style={{ cursor: "pointer" }}
+                              onMouseEnter={() => setHoveredPointIdx(i)}
+                              onClick={() => setPinnedLogId(l.id)}
+                            />
+                          );
+                        })}
+                      </svg>
+
+                      {/* Interactive Telemetry Card Tooltip */}
+                      {hoveredLog && (
+                        <div style={{
+                          marginTop: 16,
+                          background: "var(--surface-2)",
+                          border: "1px solid var(--indigo)",
+                          borderRadius: 14,
+                          padding: "14px 18px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 12,
+                          boxShadow: "0 8px 24px rgba(99,102,241,0.2)"
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#818cf8" }}>
+                              #{hoveredPointIdx! + 1}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, color: "#fff", fontSize: "0.9375rem" }}>
+                                👤 {hoveredLog.profile?.name || "Anonymous Patient"}
+                              </div>
+                              <div className="t-label" style={{ fontSize: "0.6875rem", marginTop: 2 }}>
+                                📅 {hoveredLog.profile?.date || "—"} {hoveredLog.profile?.time || ""} · 📍 {hoveredLog.profile?.location || "—"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                            {selectedParams.map(pk => {
+                              const cfg = PARAM_CONFIGS[pk];
+                              const val = cfg.getValue(hoveredLog);
+                              return (
+                                <div key={pk} style={{ textAlign: "center", background: "var(--surface)", padding: "6px 12px", borderRadius: 8, border: `1px solid ${cfg.color}40` }}>
+                                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>
+                                    {cfg.icon} {cfg.label}
+                                  </div>
+                                  <div style={{ fontWeight: 900, fontSize: "0.95rem", color: cfg.color }}>
+                                    {val !== null ? `${val} ${cfg.unit}` : "—"}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
-                  const pts = sorted.map(l => ({
-                    t: parseN(l.exposure?.temperature) ?? 25,
-                    s: l.sneezing?.count ?? 0,
-                    d: l.profile?.date?.slice(5) ?? "",
-                  }));
-                  const W=460, H=130, PL=8, PR=8, PT=12, PB=24;
-                  const cW=W-PL-PR, cH=H-PT-PB, N=pts.length;
-                  const minT=Math.min(...pts.map(p=>p.t))-2, maxT=Math.max(...pts.map(p=>p.t))+2;
-                  const maxS=Math.max(...pts.map(p=>p.s),3);
-                  const mp = pts.map((p,i) => ({
-                    x: PL+(N>1?(i/(N-1))*cW:cW/2),
-                    yT: H-PB-((p.t-minT)/(maxT-minT))*cH,
-                    yS: H-PB-(p.s/maxS)*cH, ...p,
-                  }));
-                  const tPath = mp.map((p,i)=>`${i===0?"M":"L"}${p.x.toFixed(1)},${p.yT.toFixed(1)}`).join(" ");
-                  const sPath = mp.map((p,i)=>`${i===0?"M":"L"}${p.x.toFixed(1)},${p.yS.toFixed(1)}`).join(" ");
+                })()
+              )}
+            </div>
+
+            {/* CORRELATION & STATISTICAL COMPARISON MATRIX */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+              {/* Statistical Summary Panel */}
+              <div className="card" style={{ padding: "22px 20px" }}>
+                <div style={{ fontWeight: 800, color: "#fff", fontSize: "1rem", marginBottom: 16, borderBottom: "1px solid var(--border)", paddingBottom: 12 }}>
+                  📊 Parameter Statistics Breakdown
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {selectedParams.map(pk => {
+                    const cfg = PARAM_CONFIGS[pk];
+                    const vals = chronoLogs.map(l => cfg.getValue(l)).filter(v => v !== null) as number[];
+                    if (!vals.length) return null;
+                    const min = Math.min(...vals);
+                    const max = Math.max(...vals);
+                    const avg = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+                    
+                    const mid = Math.floor(vals.length / 2);
+                    const firstHalfAvg = vals.slice(0, mid).length ? vals.slice(0, mid).reduce((a,b)=>a+b,0)/mid : avg;
+                    const secondHalfAvg = vals.slice(mid).length ? vals.slice(mid).reduce((a,b)=>a+b,0)/(vals.length - mid) : avg;
+                    const diff = secondHalfAvg - firstHalfAvg;
+                    const trendIcon = diff > 0.5 ? "📈" : diff < -0.5 ? "📉" : "➡️";
+
+                    return (
+                      <div key={pk} style={{ background: "var(--surface-2)", borderRadius: 12, padding: "12px 14px", border: `1px solid ${cfg.color}30` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: cfg.color, fontSize: "0.875rem" }}>
+                            <span>{cfg.icon}</span>
+                            <span>{cfg.label}</span>
+                          </div>
+                          <span style={{ fontSize: "0.75rem", background: "rgba(255,255,255,0.05)", padding: "2px 8px", borderRadius: 6, color: "var(--text)", fontWeight: 700 }}>
+                            {trendIcon} Trend
+                          </span>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center", fontSize: "0.75rem" }}>
+                          <div>
+                            <div className="t-label" style={{ fontSize: "0.6rem" }}>MIN</div>
+                            <div style={{ fontWeight: 800, color: "#fff", marginTop: 2 }}>{min}{cfg.unit}</div>
+                          </div>
+                          <div>
+                            <div className="t-label" style={{ fontSize: "0.6rem" }}>AVG</div>
+                            <div style={{ fontWeight: 900, color: cfg.color, marginTop: 2 }}>{avg}{cfg.unit}</div>
+                          </div>
+                          <div>
+                            <div className="t-label" style={{ fontSize: "0.6rem" }}>MAX</div>
+                            <div style={{ fontWeight: 800, color: "#fff", marginTop: 2 }}>{max}{cfg.unit}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Clinical Correlation Engine */}
+              <div className="card" style={{ padding: "22px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: 800, color: "#fff", fontSize: "1rem", marginBottom: 16, borderBottom: "1px solid var(--border)", paddingBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>💡 Clinical Correlation Insights</span>
+                    <span className="pill pill-indigo" style={{ fontSize: "0.65rem" }}>Pearson Analysis</span>
+                  </div>
+
+                  {(() => {
+                    const correlations: { p1: ParamKey; p2: ParamKey; r: number }[] = [];
+                    for (let i = 0; i < selectedParams.length; i++) {
+                      for (let j = i + 1; j < selectedParams.length; j++) {
+                        const p1 = selectedParams[i];
+                        const p2 = selectedParams[j];
+                        const r = computeCorrelation(p1, p2);
+                        if (r !== null && !isNaN(r)) {
+                          correlations.push({ p1, p2, r });
+                        }
+                      }
+                    }
+
+                    if (correlations.length === 0) {
+                      return (
+                        <div style={{ padding: "20px 0", color: "var(--muted)", fontStyle: "italic", fontSize: "0.875rem", textAlign: "center" }}>
+                          Select 2+ parameters with 3+ matching data points to run correlation analysis.
+                        </div>
+                      );
+                    }
+
+                    correlations.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
+
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {correlations.slice(0, 4).map(({ p1, p2, r }, idx) => {
+                          const cfg1 = PARAM_CONFIGS[p1];
+                          const cfg2 = PARAM_CONFIGS[p2];
+                          const absR = Math.abs(r);
+                          const strength = absR > 0.7 ? "Strong" : absR > 0.4 ? "Moderate" : "Weak";
+                          const direction = r > 0 ? "positive (+)" : "inverse (-)";
+                          const badgeColor = absR > 0.6 ? "#22c55e" : absR > 0.3 ? "#f59e0b" : "#64748b";
+
+                          return (
+                            <div key={idx} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fff" }}>
+                                  {cfg1.icon} {cfg1.label} vs {cfg2.icon} {cfg2.label}
+                                </div>
+                                <span style={{ fontSize: "0.7rem", fontWeight: 800, color: badgeColor, background: `${badgeColor}15`, padding: "2px 8px", borderRadius: 6 }}>
+                                  r = {r > 0 ? `+${r.toFixed(2)}` : r.toFixed(2)}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: 0 }}>
+                                Shows <strong style={{ color: "#fff" }}>{strength} {direction}</strong> relationship across patient logs.
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)", fontSize: "0.75rem", color: "var(--dim)" }}>
+                  ⓘ Correlation coefficients measure linear association strength between telemetry variables.
+                </div>
+              </div>
+            </div>
+
+            {/* CHRONOLOGICAL TIMELINE STREAM */}
+            <div className="card" style={{ padding: "24px 20px" }}>
+              <div style={{ fontWeight: 800, color: "#fff", fontSize: "1rem", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>📜 Chronological Log Stream</span>
+                {pinnedLogId && (
+                  <button onClick={() => setPinnedLogId(null)} className="btn btn-ghost btn-sm" style={{ fontSize: "0.75rem" }}>
+                    ✕ Clear Pinned Highlight
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {chronoLogs.map((l, i) => {
+                  const isPinned = pinnedLogId === l.id;
+                  const activeSyms = Object.entries(l.symptoms || {}).filter(([, v]: any) => v?.on || v?.active || v === true);
+                  const sneezes   = l.sneezing?.count || 0;
+                  const loc       = l.profile?.location || l.profile?.locationTag || "—";
+                  const wellness  = l.wellness || {};
+                  const temp      = l.exposure?.temperature || "—";
+                  const hum       = l.exposure?.humidity || "—";
+                  const risk      = getRiskScore(l);
+
                   return (
-                    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 130, overflow: "visible" }}>
-                      <defs>
-                        <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#fb923c" stopOpacity="0.2" />
-                          <stop offset="100%" stopColor="#fb923c" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-                      {[0.25,0.5,0.75,1].map((r,i)=>{
-                        const y=PT+r*(H-PT-PB);
-                        return <line key={i} x1={PL} y1={y} x2={W-PR} y2={y}
-                          stroke="rgba(255,255,255,0.05)" strokeWidth={1} />;
-                      })}
-                      <path d={`${tPath} L${mp[N-1].x},${H-PB} L${mp[0].x},${H-PB} Z`} fill="url(#tg)" />
-                      <path d={tPath} fill="none" stroke="#fb923c" strokeWidth={2.5}
-                        strokeLinecap="round" strokeLinejoin="round" />
-                      <path d={sPath} fill="none" stroke="#6366f1" strokeWidth={2}
-                        strokeDasharray="5 4" strokeLinecap="round" strokeLinejoin="round" />
-                      {mp.map((p: any,i: number)=>(
-                        <g key={i}>
-                          <circle cx={p.x} cy={p.yT} r={3.5} fill="var(--bg)" stroke="#fb923c" strokeWidth={2} />
-                          <circle cx={p.x} cy={p.yS} r={2.5} fill="var(--bg)" stroke="#6366f1" strokeWidth={1.5} />
-                        </g>
-                      ))}
-                    </svg>
+                    <div
+                      key={l.id}
+                      style={{
+                        position: "relative",
+                        paddingLeft: 32,
+                        transition: "all 0.2s ease"
+                      }}
+                    >
+                      {i < chronoLogs.length - 1 && (
+                        <div style={{
+                          position: "absolute",
+                          left: 11,
+                          top: 24,
+                          bottom: -20,
+                          width: 2,
+                          background: isPinned ? "var(--indigo)" : "var(--border)"
+                        }} />
+                      )}
+
+                      <div style={{
+                        position: "absolute",
+                        left: 4,
+                        top: 14,
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        background: isPinned ? "var(--indigo)" : "var(--surface-2)",
+                        border: isPinned ? "3px solid #818cf8" : "2px solid var(--border)",
+                        boxShadow: isPinned ? "0 0 12px rgba(99,102,241,0.5)" : "none",
+                        zIndex: 2
+                      }} />
+
+                      <div
+                        className={isPinned ? "card-hi" : "card"}
+                        style={{
+                          padding: 16,
+                          border: isPinned ? "1px solid var(--indigo)" : "1px solid var(--border)",
+                          background: isPinned ? "rgba(99, 102, 241, 0.08)" : "rgba(14, 20, 32, 0.65)"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontWeight: 800, color: "#fff", fontSize: "0.9375rem" }}>
+                              👤 {l.profile?.name || "Anonymous Patient"}
+                            </span>
+                            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                              📅 {l.profile?.date || "—"} {l.profile?.time || ""}
+                            </span>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span className="pill pill-indigo" style={{ fontSize: "0.65rem" }}>📍 {loc}</span>
+                            <span style={{
+                              fontSize: "0.65rem",
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              fontWeight: 800,
+                              background: risk > 65 ? "rgba(239,68,68,0.15)" : risk > 40 ? "rgba(245,158,11,0.15)" : "rgba(34,197,94,0.15)",
+                              color: risk > 65 ? "#ef4444" : risk > 40 ? "#fb923c" : "#22c55e"
+                            }}>
+                              Risk {risk}%
+                            </span>
+                            {!l.isAggregated && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteSingleLog(l.id, l.profile?.name, l.profile?.date);
+                                }}
+                                style={{
+                                  background: "rgba(239, 68, 68, 0.12)",
+                                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                                  color: "#fca5a5",
+                                  borderRadius: 6,
+                                  padding: "2px 6px",
+                                  fontSize: "0.7rem",
+                                  cursor: "pointer"
+                                }}
+                                title="Delete this log entry"
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, background: "var(--surface)", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)" }}>
+                          <span style={{ fontSize: "0.75rem", color: "#fb923c", fontWeight: 700 }}>🌡️ {temp}</span>
+                          <span style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: 700 }}>💧 {hum}</span>
+                          {sneezes > 0 && <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700 }}>😤 {sneezes} sneezes</span>}
+                          {wellness.stress && <span style={{ fontSize: "0.75rem", color: "#ec4899", fontWeight: 700 }}>🧠 Stress {wellness.stress}/10</span>}
+                          {wellness.sleep?.hours && <span style={{ fontSize: "0.75rem", color: "#818cf8", fontWeight: 700 }}>🌙 Sleep {wellness.sleep.hours}h</span>}
+                          {activeSyms.length > 0 && (
+                            <span style={{ fontSize: "0.75rem", color: "#ef4444", fontWeight: 700 }}>🩺 {activeSyms.length} symptoms</span>
+                          )}
+                        </div>
+
+                        {activeSyms.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                            {activeSyms.map(([k]) => (
+                              <span key={k} className="pill pill-red" style={{ fontSize: "0.65rem", textTransform: "capitalize" }}>
+                                {k}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
-                })()}
+                })}
               </div>
             </div>
           </div>
@@ -353,11 +1272,11 @@ export default function Admin() {
                 borderRadius: "50%", animation: "spinSlow 0.8s linear infinite" }} />
               <span style={{ fontSize: "0.9rem" }}>Loading logs…</span>
             </div>
-          ) : logs.length === 0 ? (
+          ) : filteredLogs.length === 0 ? (
             <div style={{ textAlign: "center", paddingTop: 80, color: "var(--muted)" }}>
               <div style={{ fontSize: "3rem", marginBottom: 16 }}>📭</div>
-              <p style={{ marginBottom: 20 }}>No logs yet.</p>
-              <a href="/wizard" className="btn btn-primary">Open Wizard →</a>
+              <p style={{ marginBottom: 20 }}>No logs match the current search or filter criteria.</p>
+              <button onClick={() => { setSearchTerm(""); setSelectedPatient("all"); setOnlyHighRiskFilter(false); }} className="btn btn-ghost btn-sm">Clear Search Filters</button>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -418,7 +1337,6 @@ export default function Admin() {
                       border: isChecked ? "1px solid var(--indigo)" : "1px solid var(--border)",
                       background: isChecked ? "rgba(99, 102, 241, 0.05)" : "rgba(14, 20, 32, 0.65)"
                     }}>
-                      {/* header */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <input
@@ -435,10 +1353,29 @@ export default function Admin() {
                             {l.profile?.date || "—"} · {l.profile?.time || "—"}
                           </span>
                         </div>
-                        <span className="pill pill-indigo" style={{ fontSize: "0.7rem" }}>📍 {loc}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span className="pill pill-indigo" style={{ fontSize: "0.7rem" }}>📍 {loc}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSingleLog(l.id, l.profile?.name, l.profile?.date);
+                            }}
+                            style={{
+                              background: "rgba(239, 68, 68, 0.12)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              color: "#fca5a5",
+                              borderRadius: 6,
+                              padding: "2px 6px",
+                              fontSize: "0.7rem",
+                              cursor: "pointer"
+                            }}
+                            title="Delete this log entry"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </div>
 
-                      {/* patient & feeling */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
                         <span style={{ fontSize: "0.875rem", fontWeight: 800, color: "#fff" }}>
                           👤 {l.profile?.name || "Anonymous"}
@@ -450,7 +1387,6 @@ export default function Admin() {
                         )}
                       </div>
 
-                      {/* Emotions */}
                       {emotions.length > 0 && (
                         <div>
                           <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 5 }}>💭 EMOTIONS</div>
@@ -469,7 +1405,6 @@ export default function Admin() {
                         </div>
                       )}
 
-                      {/* Allergens Exposure list */}
                       {allergens.length > 0 && (
                         <div>
                           <div className="t-label" style={{ fontSize: "0.6rem", marginBottom: 5 }}>🐾 ALLERGEN EXPOSURE</div>
@@ -497,7 +1432,6 @@ export default function Admin() {
                         </div>
                       )}
 
-                      {/* climate row */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {[
                           { l: "Temp", v: l.exposure?.temperature || "—", c: "#fb923c" },
@@ -511,7 +1445,6 @@ export default function Admin() {
                         ))}
                       </div>
 
-                      {/* Wellness row: stomach + sleep + stress + water */}
                       {(stomach || sleepH !== undefined || sleepH !== null || stress !== undefined || water !== undefined) && (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
                           {stomach && (
@@ -565,7 +1498,6 @@ export default function Admin() {
                         </div>
                       )}
 
-                      {/* Urine & bloating chips */}
                       {(urineColor || urineThick || bloating) && (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                           {urineColor && (
@@ -589,7 +1521,6 @@ export default function Admin() {
                         </div>
                       )}
 
-                      {/* sneezes */}
                       {sneezes > 0 && (
                         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px",
                           background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 10 }}>
@@ -598,7 +1529,6 @@ export default function Admin() {
                         </div>
                       )}
 
-                      {/* symptoms */}
                       {activeSyms.length > 0 ? (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {activeSyms.map(([k]) => (
@@ -609,7 +1539,6 @@ export default function Admin() {
                         <span className="t-label" style={{ fontStyle: "italic", fontSize: "0.75rem" }}>No symptoms flagged</span>
                       )}
 
-                      {/* intake */}
                       {(l.exposure?.foodIntake || l.exposure?.medicines) && (
                         <div style={{ fontSize: "0.8125rem", color: "var(--muted)", lineHeight: 1.6,
                           borderTop: "1px solid var(--border)", paddingTop: 12 }}>
@@ -625,6 +1554,112 @@ export default function Admin() {
           )
         )}
       </div>
+
+      {/* 🏥 CLINICAL SUMMARY & MEDGEMMA REPORT MODAL */}
+      {showReportModal && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 200,
+          background: "rgba(0,0,0,0.75)",
+          backdropFilter: "blur(8px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20
+        }}>
+          <div className="card-hi" style={{ width: "100%", maxWidth: 680, maxHeight: "90vh", overflowY: "auto", padding: 28, position: "relative" }}>
+            <button
+              onClick={() => setShowReportModal(false)}
+              style={{ position: "absolute", top: 20, right: 20, background: "transparent", border: "none", color: "var(--muted)", fontSize: "1.2rem", cursor: "pointer" }}
+            >
+              ✕
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "var(--indigo-lo)", border: "1px solid rgba(99,102,241,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}>
+                🏥
+              </div>
+              <div>
+                <h2 style={{ fontWeight: 900, color: "#fff", fontSize: "1.3rem", lineHeight: 1.1 }}>
+                  Clinical Summary & MedGemma Report
+                </h2>
+                <p className="t-label" style={{ fontSize: "0.6875rem", marginTop: 2 }}>
+                  Generated for {selectedPatient === "all" ? "All Patient Logs" : `Patient: ${selectedPatient}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Formatted Report Preview Container */}
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: 20, marginBottom: 20, fontSize: "0.875rem", lineHeight: 1.6 }}>
+              <div style={{ borderBottom: "1px solid var(--border)", paddingBottom: 12, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, color: "#fff" }}>📋 Telemetry Report Overview</span>
+                <span className="pill pill-indigo" style={{ fontSize: "0.65rem" }}>{filteredLogs.length} Records</span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                <div><strong>Baseline Temp:</strong> {avgTemp()}</div>
+                <div><strong>Baseline Humidity:</strong> {avgHum()}</div>
+                <div><strong>Latest Risk:</strong> {latestRisk.score}% ({latestRisk.label})</div>
+                <div><strong>High Risk Breaches:</strong> {highRiskBreaches.length} logs</div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, color: "#fff", marginBottom: 6 }}>Identified Allergy Triggers:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {allergenStats.filter(a => a.count > 0).map(a => (
+                    <span key={a.id} style={{ fontSize: "0.75rem", padding: "3px 10px", borderRadius: 8, background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)", color: "#a78bfa", fontWeight: 700 }}>
+                      {a.icon} {a.label} ({a.count} logs)
+                    </span>
+                  ))}
+                  {allergenStats.filter(a => a.count > 0).length === 0 && <span style={{ color: "var(--muted)", fontStyle: "italic" }}>No trigger exposures flagged.</span>}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 700, color: "#fff", marginBottom: 6 }}>Structured MedGemma Analysis Prompt:</div>
+                <textarea
+                  readOnly
+                  value={generateMedGemmaPrompt()}
+                  rows={6}
+                  style={{
+                    width: "100%",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: 12,
+                    fontFamily: "monospace",
+                    fontSize: "0.75rem",
+                    resize: "none"
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(generateMedGemmaPrompt());
+                  setCopiedPrompt(true);
+                  setTimeout(() => setCopiedPrompt(false), 2500);
+                }}
+                className="btn btn-ghost"
+              >
+                {copiedPrompt ? "✓ Copied Prompt!" : "📋 Copy MedGemma Prompt"}
+              </button>
+
+              <button
+                onClick={() => window.print()}
+                className="btn btn-primary"
+              >
+                🖨️ Print Clinical Summary
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
