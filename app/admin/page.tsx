@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
-import { collection, getDocs, orderBy, query, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, orderBy, query, deleteDoc, updateDoc, doc } from "firebase/firestore";
 
 export type ParamKey = "temp" | "humidity" | "sneezes" | "stress" | "sleep" | "water" | "bloating" | "symptoms" | "risk";
 
@@ -37,6 +37,41 @@ export default function Admin() {
   const [onlyHighRiskFilter, setOnlyHighRiskFilter] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [copiedPrompt, setCopiedPrompt]       = useState(false);
+
+  // Edit Log States
+  const [editingLog, setEditingLog]           = useState<any | null>(null);
+  const [showEditModal, setShowEditModal]     = useState(false);
+  const [savingEdit, setSavingEdit]           = useState(false);
+
+  const openEditModal = (log: any) => {
+    setEditingLog(JSON.parse(JSON.stringify(log)));
+    setShowEditModal(true);
+  };
+
+  const saveLogEdit = async () => {
+    if (!db || !editingLog || !editingLog.id) return;
+    setSavingEdit(true);
+    try {
+      const logRef = doc(db, "health_logs", editingLog.id);
+      const updateData = {
+        profile: editingLog.profile || {},
+        exposure: editingLog.exposure || {},
+        sneezing: editingLog.sneezing || { count: 0 },
+        symptoms: editingLog.symptoms || {},
+        wellness: editingLog.wellness || {},
+        updatedAt: new Date().toISOString()
+      };
+      await updateDoc(logRef, updateData);
+      setLogs(prev => prev.map(l => l.id === editingLog.id ? { ...l, ...updateData } : l));
+      setShowEditModal(false);
+      setEditingLog(null);
+    } catch (e) {
+      console.error("Error saving log edit:", e);
+      alert("Failed to update log entry.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const deleteSelected = async () => {
     if (!db) return;
@@ -1358,6 +1393,28 @@ Analyze the above longitudinal telemetry data for potential environmental allerg
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              openEditModal(l);
+                            }}
+                            style={{
+                              background: "rgba(99, 102, 241, 0.15)",
+                              border: "1px solid rgba(99, 102, 241, 0.35)",
+                              color: "#a5b4fc",
+                              borderRadius: 6,
+                              padding: "3px 8px",
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 4
+                            }}
+                            title="Edit this log entry"
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               deleteSingleLog(l.id, l.profile?.name, l.profile?.date);
                             }}
                             style={{
@@ -1365,7 +1422,7 @@ Analyze the above longitudinal telemetry data for potential environmental allerg
                               border: "1px solid rgba(239, 68, 68, 0.3)",
                               color: "#fca5a5",
                               borderRadius: 6,
-                              padding: "2px 6px",
+                              padding: "3px 6px",
                               fontSize: "0.7rem",
                               cursor: "pointer"
                             }}
@@ -1655,6 +1712,344 @@ Analyze the above longitudinal telemetry data for potential environmental allerg
                 className="btn btn-primary"
               >
                 🖨️ Print Clinical Summary
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✏️ EDIT LOG ENTRY MODAL */}
+      {showEditModal && editingLog && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 300,
+          background: "rgba(0,0,0,0.8)",
+          backdropFilter: "blur(8px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20
+        }}>
+          <div className="card-hi" style={{
+            width: "100%",
+            maxWidth: 720,
+            maxHeight: "92vh",
+            overflowY: "auto",
+            padding: 28,
+            borderRadius: 20,
+            background: "rgba(15, 23, 42, 0.98)",
+            border: "1px solid rgba(99, 102, 241, 0.4)",
+            position: "relative"
+          }}>
+            <button
+              onClick={() => { setShowEditModal(false); setEditingLog(null); }}
+              style={{
+                position: "absolute",
+                top: 20,
+                right: 20,
+                background: "transparent",
+                border: "none",
+                color: "var(--muted)",
+                fontSize: "1.2rem",
+                cursor: "pointer"
+              }}
+            >
+              ✕
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <div style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: "rgba(99, 102, 241, 0.15)",
+                border: "1px solid rgba(99, 102, 241, 0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "1.3rem"
+              }}>
+                ✏️
+              </div>
+              <div>
+                <h2 style={{ fontWeight: 900, color: "#fff", fontSize: "1.25rem", margin: 0 }}>
+                  Edit Health Log Entry
+                </h2>
+                <p className="t-label" style={{ fontSize: "0.7rem", marginTop: 2 }}>
+                  Log ID: {editingLog.id}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* 1. Profile & Meta */}
+              <div style={{ background: "rgba(255,255,255,0.02)", padding: 16, borderRadius: 14, border: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 800, color: "#818cf8", fontSize: "0.85rem", marginBottom: 12 }}>
+                  👤 Profile & Context
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Patient Name</label>
+                    <input
+                      type="text"
+                      value={editingLog.profile?.name || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        profile: { ...editingLog.profile, name: e.target.value }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Location</label>
+                    <input
+                      type="text"
+                      value={editingLog.profile?.location || editingLog.profile?.locationTag || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        profile: { ...editingLog.profile, location: e.target.value }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Date</label>
+                    <input
+                      type="date"
+                      value={editingLog.profile?.date || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        profile: { ...editingLog.profile, date: e.target.value }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Time</label>
+                    <input
+                      type="time"
+                      value={editingLog.profile?.time || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        profile: { ...editingLog.profile, time: e.target.value }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Climate & Exposure */}
+              <div style={{ background: "rgba(255,255,255,0.02)", padding: 16, borderRadius: 14, border: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 800, color: "#fb923c", fontSize: "0.85rem", marginBottom: 12 }}>
+                  🌡️ Climate Telemetry & Diet
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Temperature</label>
+                    <input
+                      type="text"
+                      value={editingLog.exposure?.temperature || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        exposure: { ...editingLog.exposure, temperature: e.target.value }
+                      })}
+                      placeholder="e.g. 26°C"
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Humidity</label>
+                    <input
+                      type="text"
+                      value={editingLog.exposure?.humidity || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        exposure: { ...editingLog.exposure, humidity: e.target.value }
+                      })}
+                      placeholder="e.g. 50%"
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Food Intake</label>
+                    <input
+                      type="text"
+                      value={editingLog.exposure?.foodIntake || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        exposure: { ...editingLog.exposure, foodIntake: e.target.value }
+                      })}
+                      placeholder="e.g. Tea & Toast"
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Medicines</label>
+                    <input
+                      type="text"
+                      value={editingLog.exposure?.medicines || ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        exposure: { ...editingLog.exposure, medicines: e.target.value }
+                      })}
+                      placeholder="e.g. Cetirizine 10mg"
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Symptoms & Sneezing */}
+              <div style={{ background: "rgba(255,255,255,0.02)", padding: 16, borderRadius: 14, border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontWeight: 800, color: "#ef4444", fontSize: "0.85rem" }}>
+                    🩺 Active Symptoms & Sneezes
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="t-label" style={{ fontSize: "0.65rem" }}>Sneezes:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingLog.sneezing?.count ?? 0}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        sneezing: { ...editingLog.sneezing, count: parseInt(e.target.value) || 0 }
+                      })}
+                      style={{ width: 60, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 8px", color: "#fff", fontSize: "0.8125rem", textAlign: "center" }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
+                  {[
+                    { key: "itching", label: "Skin Itching" },
+                    { key: "redness", label: "Skin Redness" },
+                    { key: "headache", label: "Headache" },
+                    { key: "mucus", label: "Excess Mucus" },
+                    { key: "vomiting", label: "Nausea" },
+                    { key: "bleeding", label: "Bleeding" },
+                    { key: "eye_itching", label: "Eye Itching" },
+                    { key: "breathing", label: "Breathing Diff." },
+                    { key: "coughing", label: "Dry Coughing" },
+                  ].map(s => {
+                    const currentSyms = editingLog.symptoms || {};
+                    const isOn = currentSyms[s.key]?.on || currentSyms[s.key]?.active || currentSyms[s.key] === true;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...currentSyms };
+                          updated[s.key] = { on: !isOn, note: updated[s.key]?.note || "" };
+                          setEditingLog({ ...editingLog, symptoms: updated });
+                        }}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 10,
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          textAlign: "center",
+                          background: isOn ? "rgba(239, 68, 68, 0.2)" : "rgba(255,255,255,0.03)",
+                          border: isOn ? "1px solid #ef4444" : "1px solid var(--border)",
+                          color: isOn ? "#fca5a5" : "var(--muted)"
+                        }}
+                      >
+                        {isOn ? "✓ " : ""}{s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4. Wellness Vitals */}
+              <div style={{ background: "rgba(255,255,255,0.02)", padding: 16, borderRadius: 14, border: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 800, color: "#34d399", fontSize: "0.85rem", marginBottom: 12 }}>
+                  🌿 Wellness Telemetry & Vitals
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Stress Level (1-10)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editingLog.wellness?.stress ?? 3}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        wellness: { ...editingLog.wellness, stress: parseInt(e.target.value) || 1 }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Sleep (Hours)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={24}
+                      value={editingLog.wellness?.sleep?.hours ?? ""}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        wellness: {
+                          ...editingLog.wellness,
+                          sleep: { ...editingLog.wellness?.sleep, hours: parseFloat(e.target.value) || 0 }
+                        }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Water Intake (Glasses)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingLog.wellness?.water ?? 4}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        wellness: { ...editingLog.wellness, water: parseInt(e.target.value) || 0 }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="t-label" style={{ fontSize: "0.65rem" }}>Stomach Movement</label>
+                    <select
+                      value={editingLog.wellness?.stomach?.movement || "normal"}
+                      onChange={e => setEditingLog({
+                        ...editingLog,
+                        wellness: {
+                          ...editingLog.wellness,
+                          stomach: { ...editingLog.wellness?.stomach, movement: e.target.value }
+                        }
+                      })}
+                      style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", color: "#fff", fontSize: "0.8125rem" }}
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="constipation">Constipation</option>
+                      <option value="loose">Loose</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
+              <button
+                onClick={() => { setShowEditModal(false); setEditingLog(null); }}
+                className="btn btn-ghost"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveLogEdit}
+                disabled={savingEdit}
+                className="btn btn-primary"
+              >
+                {savingEdit ? "Saving..." : "💾 Save Changes"}
               </button>
             </div>
           </div>
