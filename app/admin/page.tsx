@@ -38,6 +38,10 @@ export default function Admin() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [copiedPrompt, setCopiedPrompt]       = useState(false);
 
+  // Correlation Filter States
+  const [selectedAllergen, setSelectedAllergen] = useState<string>("all");
+  const [selectedSymptom, setSelectedSymptom]   = useState<string>("all");
+
   // Edit Log States
   const [editingLog, setEditingLog]           = useState<any | null>(null);
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -269,11 +273,37 @@ export default function Admin() {
 
   const patients = Array.from(new Set(logs.map(l => l.profile?.name).filter(Boolean))) as string[];
 
-  // 🔍 Multi-field Search & High-Risk Filter
+  // 🔍 Multi-field Search, High-Risk & Date Range Filter
   const filteredLogs = logs.filter(l => {
     if (selectedPatient !== "all" && l.profile?.name !== selectedPatient) return false;
     
     if (onlyHighRiskFilter && getRiskScore(l) < 65 && (l.sneezing?.count || 0) < 8 && (l.wellness?.stress || 0) < 8) return false;
+
+    // 📅 Date Range Filtering
+    if (dateRange !== "all") {
+      const logTime = getLogTimestamp(l);
+      if (logTime > 0) {
+        const now = Date.now();
+        const allTimestamps = logs.map(lg => getLogTimestamp(lg)).filter(t => t > 0);
+        const maxTime = allTimestamps.length > 0 ? Math.max(...allTimestamps) : now;
+        const cutoffDays = dateRange === "7d" ? 7 : 30;
+        if (logTime < maxTime - cutoffDays * 86400000) return false;
+      }
+    }
+
+    // 🐾 Allergen Exposure Filter
+    if (selectedAllergen !== "all") {
+      const algs: string[] = l.wellness?.allergens || [];
+      if (!algs.includes(selectedAllergen)) return false;
+    }
+
+    // 🩺 Symptom Filter
+    if (selectedSymptom !== "all") {
+      const syms = l.symptoms || {};
+      const val = syms[selectedSymptom];
+      const active = val?.on || val?.active || val === true;
+      if (!active) return false;
+    }
 
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -295,17 +325,8 @@ export default function Admin() {
     return true;
   });
 
-  // 📅 Date Range Filter for Timeline
-  const rawChronoLogs = [...filteredLogs]
-    .filter(l => {
-      if (dateRange === "all") return true;
-      const logTime = new Date(l.timestamp || l.profile?.date || 0).getTime();
-      if (!logTime) return true;
-      const maxTime = Math.max(...logs.map(lg => new Date(lg.timestamp || lg.profile?.date || 0).getTime()), Date.now());
-      const cutoffDays = dateRange === "7d" ? 7 : 30;
-      return logTime >= (maxTime - cutoffDays * 86400000);
-    })
-    .sort((a, b) => new Date(a.timestamp || a.profile?.date || 0).getTime() - new Date(b.timestamp || b.profile?.date || 0).getTime());
+  // 📅 Chronological order for Timeline
+  const rawChronoLogs = [...filteredLogs].sort((a, b) => getLogTimestamp(a) - getLogTimestamp(b));
 
   // Daily Aggregation for Timeline Smoothing
   const chronoLogs = aggregateDaily ? (() => {
@@ -638,6 +659,101 @@ Analyze the above longitudinal telemetry data for potential environmental allerg
               </button>
             ))}
           </div>
+        </div>
+
+        {/* 🧪 Correlation Filter Bar: Allergen & Symptom Isolators */}
+        <div style={{
+          marginBottom: 24,
+          padding: "14px 18px",
+          background: "rgba(14, 20, 32, 0.75)",
+          border: "1px solid var(--border)",
+          borderRadius: 16,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 16,
+          justifyContent: "space-between"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.8125rem", fontWeight: 800, color: "#818cf8", display: "flex", alignItems: "center", gap: 6 }}>
+              🧪 Correlation Filters:
+            </span>
+
+            {/* Allergen Exposure Filter */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="t-label" style={{ fontSize: "0.65rem" }}>Trigger Exposure:</span>
+              <select
+                value={selectedAllergen}
+                onChange={e => setSelectedAllergen(e.target.value)}
+                style={{
+                  background: "var(--surface)",
+                  color: "#fff",
+                  border: selectedAllergen !== "all" ? "1px solid var(--indigo)" : "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  fontSize: "0.78125rem",
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                <option value="all">🐾 All Triggers</option>
+                <option value="pollen">🌳 Pollen</option>
+                <option value="dust">🧹 Dust</option>
+                <option value="pets">🐱 Pets / Dander</option>
+                <option value="mold">🍄 Mold / Dampness</option>
+                <option value="perfume">🧴 Perfumes / Chemicals</option>
+                <option value="smoke">🚬 Smoke / Smog</option>
+              </select>
+            </div>
+
+            {/* Symptom Filter */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="t-label" style={{ fontSize: "0.65rem" }}>Target Symptom:</span>
+              <select
+                value={selectedSymptom}
+                onChange={e => setSelectedSymptom(e.target.value)}
+                style={{
+                  background: "var(--surface)",
+                  color: "#fff",
+                  border: selectedSymptom !== "all" ? "1px solid var(--indigo)" : "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  fontSize: "0.78125rem",
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                <option value="all">🩺 All Symptoms</option>
+                <option value="itching">😣 Skin Itching</option>
+                <option value="redness">🔴 Skin Redness</option>
+                <option value="headache">🤕 Headache</option>
+                <option value="mucus">💧 Excess Mucus</option>
+                <option value="vomiting">🤢 Nausea / Vomiting</option>
+                <option value="bleeding">🩸 Bleeding</option>
+                <option value="eye_itching">👁️ Eye Itching</option>
+                <option value="breathing">😮‍💨 Breathing Diff.</option>
+                <option value="coughing">😷 Dry Coughing</option>
+              </select>
+            </div>
+          </div>
+
+          {(selectedAllergen !== "all" || selectedSymptom !== "all") && (
+            <button
+              onClick={() => { setSelectedAllergen("all"); setSelectedSymptom("all"); }}
+              style={{
+                background: "rgba(239, 68, 68, 0.15)",
+                color: "#fca5a5",
+                border: "1px solid rgba(239, 68, 68, 0.35)",
+                borderRadius: 8,
+                padding: "5px 12px",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+            >
+              ✕ Reset Correlation Filters
+            </button>
+          )}
         </div>
 
         {/* ── OVERVIEW ──────────────────────────────────────────────── */}
