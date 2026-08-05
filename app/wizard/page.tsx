@@ -114,6 +114,8 @@ export default function Wizard() {
             const active = (savedId && parsed.find((p: any) => p.id === savedId)) || parsed[0];
             setActiveProfileId(active.id);
             setProfile(p => ({ ...p, name: active.name }));
+          } else {
+            setShowAddForm(true);
           }
         } catch (e) {
           console.error(e);
@@ -158,15 +160,26 @@ export default function Wizard() {
 
   const deleteProfile = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (id === "default") return;
+    const pToDelete = profiles.find(p => p.id === id);
+    if (!pToDelete) return;
+    if (!window.confirm(`Are you sure you want to delete profile "${pToDelete.name}"?`)) return;
+
     const filtered = profiles.filter(p => p.id !== id);
     setProfiles(filtered);
     localStorage.setItem("zensit_user_profiles", JSON.stringify(filtered));
+
     if (activeProfileId === id) {
-      const fallback = filtered[0] || { id: "default", name: "Nandu", allergies: "Pollen", color: "#6366f1", feeling: "Calm 😌" };
-      localStorage.setItem("zensit_active_profile_id", fallback.id);
-      setActiveProfileId(fallback.id);
-      setProfile(p => ({ ...p, name: fallback.name }));
+      if (filtered.length > 0) {
+        const fallback = filtered[0];
+        localStorage.setItem("zensit_active_profile_id", fallback.id);
+        setActiveProfileId(fallback.id);
+        setProfile(p => ({ ...p, name: fallback.name }));
+      } else {
+        localStorage.removeItem("zensit_active_profile_id");
+        setActiveProfileId("");
+        setProfile(p => ({ ...p, name: "" }));
+        setShowAddForm(true);
+      }
     }
   };
 
@@ -533,21 +546,19 @@ export default function Wizard() {
                         >
                           ✏️
                         </button>
-                        {p.id !== "default" && (
-                          <button
-                            type="button"
-                            onClick={(e) => deleteProfile(p.id, e)}
-                            style={{
-                              background: "none", border: "none",
-                              color: "rgba(239, 68, 68, 0.7)",
-                              cursor: "pointer", fontSize: "1rem", padding: 4,
-                              display: "flex", alignItems: "center", justifyContent: "center"
-                            }}
-                            title="Delete Profile"
-                          >
-                            🗑️
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => deleteProfile(p.id, e)}
+                          style={{
+                            background: "none", border: "none",
+                            color: "rgba(239, 68, 68, 0.7)",
+                            cursor: "pointer", fontSize: "1rem", padding: 4,
+                            display: "flex", alignItems: "center", justifyContent: "center"
+                          }}
+                          title="Delete Profile"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </div>
                   );
