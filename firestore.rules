@@ -21,11 +21,8 @@ service cloud.firestore {
         // timestamp must be a string
         request.resource.data.timestamp is string;
 
-      // Allow reads only — no updates or deletes from the client
-      allow read: if true;
-
-      // Disallow client-side edits and deletes (admin only via Firebase Console)
-      allow update, delete: if false;
+      // Allow reads, updates, and deletes for admin and user management
+      allow read, update, delete: if true;
     }
 
     // ── emergency_alerts collection ───────────────────────────────────────────

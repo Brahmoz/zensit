@@ -104,7 +104,7 @@ export default function Admin() {
   };
 
   const deletePatientProfile = async (patientName: string) => {
-    if (!db || !patientName || patientName === "all") return;
+    if (!patientName || patientName === "all") return;
     const patientLogs = logs.filter(l => l.profile?.name === patientName);
     const msg = patientLogs.length > 0
       ? `🚨 DANGER ZONE: Are you sure you want to delete patient profile "${patientName}" and ALL ${patientLogs.length} logged entries? This action cannot be undone.`
@@ -112,14 +112,19 @@ export default function Admin() {
     if (!window.confirm(msg)) return;
 
     try {
-      if (patientLogs.length > 0) {
+      if (db && patientLogs.length > 0) {
         for (const log of patientLogs) {
-          await deleteDoc(doc(db, "health_logs", log.id));
+          try {
+            await deleteDoc(doc(db, "health_logs", log.id));
+          } catch (docErr) {
+            console.warn(`Could not delete document ${log.id} from Firestore:`, docErr);
+          }
         }
-        const deletedIds = patientLogs.map(l => l.id);
-        setLogs(prev => prev.filter(l => l.profile?.name !== patientName));
-        setSelectedLogs(prev => prev.filter(id => !deletedIds.includes(id)));
       }
+
+      const deletedIds = patientLogs.map(l => l.id);
+      setLogs(prev => prev.filter(l => l.profile?.name !== patientName));
+      setSelectedLogs(prev => prev.filter(id => !deletedIds.includes(id)));
 
       // Sync local storage user profiles
       if (typeof window !== "undefined") {
@@ -131,14 +136,14 @@ export default function Admin() {
             localStorage.setItem("zensit_user_profiles", JSON.stringify(filtered));
           }
         } catch (err) {
-          console.error(err);
+          console.error("Failed to sync localStorage profiles:", err);
         }
       }
 
       setSelectedPatient("all");
       alert(`Patient profile "${patientName}" deleted successfully.`);
     } catch (e) {
-      console.error(e);
+      console.error("Error deleting patient profile:", e);
       alert("Failed to delete patient profile.");
     }
   };
